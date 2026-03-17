@@ -1,0 +1,931 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Dialog } from "@headlessui/react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+function classNames(...classes: string[]) {
+  return classes.filter(Boolean).join(" ");
+}
+
+const REACTION_OPTIONS = ["👍", "🙌", "💡", "🔥", "🎉"];
+
+const CARD_GRADIENTS = [
+  "from-indigo-600/30 to-blue-700/20",
+  "from-violet-600/30 to-indigo-700/20",
+  "from-blue-600/30 to-cyan-700/20",
+  "from-purple-600/30 to-violet-700/20",
+  "from-cyan-600/30 to-blue-700/20",
+  "from-emerald-600/30 to-teal-700/20",
+  "from-rose-600/30 to-pink-700/20",
+  "from-amber-600/30 to-orange-700/20",
+];
+
+export default function Page() {
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [selectedExam, setSelectedExam] = useState<string | null>(null);
+
+  /* =====================
+      データ管理
+  ===================== */
+  const [records, setRecords] = useState<any[]>([]);
+  const [examMaster, setExamMaster] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingMemo, setEditingMemo] = useState("");
+
+  // コメント用
+  const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
+  const [commentName, setCommentName] = useState("");
+  const [commentText, setCommentText] = useState("");
+
+  /* =====================
+      入力用
+  ===================== */
+  const [userName, setUserName] = useState("");
+  const [examName, setExamName] = useState("");
+  const [newExamName, setNewExamName] = useState("");
+  const [memo, setMemo] = useState("");
+  const [examDate, setExamDate] = useState("");
+  const [result, setResult] = useState("");
+  const [score, setScore] = useState("");
+  const [studyPeriod, setStudyPeriod] = useState("");
+  const [studyTime, setStudyTime] = useState("");
+  const [studyMethod, setStudyMethod] = useState("");
+  const [difficulty, setDifficulty] = useState(3);
+  const [details, setDetails] = useState("");
+
+  // 詳細入力項目
+  const [examFee, setExamFee] = useState("");
+  const [questionCount, setQuestionCount] = useState("");
+  const [questionLength, setQuestionLength] = useState("");
+  const [examFormat, setExamFormat] = useState("");
+  const [studyMaterials, setStudyMaterials] = useState("");
+  const [studyHours, setStudyHours] = useState("");
+  const [effectiveMethod, setEffectiveMethod] = useState("");
+  const [frequentTopics, setFrequentTopics] = useState("");
+  const [challengePoints, setChallengePoints] = useState("");
+  const [passingTips, setPassingTips] = useState("");
+  const [adviceForNext, setAdviceForNext] = useState("");
+  const [addExamInput, setAddExamInput] = useState("");
+  const [postFormOpen, setPostFormOpen] = useState(false);
+  const [editingExam, setEditingExam] = useState<string | null>(null);
+  const [editingExamName, setEditingExamName] = useState("");
+
+  const EXAM_MASTER_KEY = "shikaku_exam_master";
+
+  const renameExam = async (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    setEditingExam(null);
+    if (!trimmed || trimmed === oldName) return;
+    await supabase.from("shikaku_memos").update({ exam_name: trimmed }).eq("exam_name", oldName);
+    const updated = examMaster.map(n => n === oldName ? trimmed : n);
+    setExamMaster(updated);
+    localStorage.setItem("shikaku_exam_master", JSON.stringify(updated));
+    if (selectedExam === oldName) setSelectedExam(trimmed);
+    fetchRecords();
+  };
+
+  const deleteExam = async (name: string) => {
+    const count = records.filter(r => r.exam_name === name).length;
+    const msg = count > 0
+      ? `「${name}」を削除しますか？\n関連する投稿 ${count} 件もすべて削除されます。`
+      : `「${name}」を削除しますか？`;
+    if (!confirm(msg)) return;
+    if (count > 0) await supabase.from("shikaku_memos").delete().eq("exam_name", name);
+    const updated = examMaster.filter(n => n !== name);
+    setExamMaster(updated);
+    localStorage.setItem("shikaku_exam_master", JSON.stringify(updated));
+    fetchRecords();
+  };
+
+  const handleAddExam = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || examMaster.includes(trimmed)) return;
+    const updated = [...examMaster, trimmed];
+    setExamMaster(updated);
+    localStorage.setItem(EXAM_MASTER_KEY, JSON.stringify(updated));
+  };
+
+  useEffect(() => {
+    if (selectedExam) setExamName(selectedExam);
+  }, [selectedExam]);
+
+  const fetchRecords = async () => {
+    const { data, error } = await supabase
+      .from("shikaku_memos")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      alert("データ取得に失敗しました: " + error.message);
+      return;
+    }
+
+    if (data) {
+      setRecords(data);
+      const existingExams = data.map((r: any) => r.exam_name);
+      const stored: string[] = JSON.parse(localStorage.getItem("shikaku_exam_master") || "[]");
+      setExamMaster(prev => Array.from(new Set([...prev, ...existingExams, ...stored])));
+
+      if (selectedRecord) {
+        const updated = data.find(r => r.id === selectedRecord.id);
+        if (updated) setSelectedRecord(updated);
+      }
+    }
+  };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user && !session.user.email?.endsWith("@widsley.com")) {
+        supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+      setSession(session);
+      setLoading(false);
+      if (session?.user?.user_metadata?.full_name) {
+        setUserName(session.user.user_metadata.full_name);
+      }
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user && !session.user.email?.endsWith("@widsley.com")) {
+        supabase.auth.signOut();
+        alert("このサービスはWidsley社員専用です。@widsley.com のアカウントでログインしてください。");
+        return;
+      }
+      setSession(session);
+      if (session?.user?.user_metadata?.full_name) {
+        setUserName(session.user.user_metadata.full_name);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (session) fetchRecords();
+  }, [session]);
+
+  /* =====================
+      保存・アクション
+  ===================== */
+  const saveRecord = async () => {
+    const nameToSave = examName || selectedExam || "";
+    if (!userName || !nameToSave || !memo) {
+      alert("必須項目（★）を入力してください");
+      return;
+    }
+    const detailsJson = JSON.stringify({
+      examFee, questionCount, questionLength, examFormat,
+      studyMaterials, studyHours, effectiveMethod,
+      frequentTopics, challengePoints, passingTips, adviceForNext,
+    });
+    const { error } = await supabase.from("shikaku_memos").insert([{
+      user_name: userName, exam_name: nameToSave, memo,
+      exam_date: examDate || null, result, score,
+      study_period: studyPeriod, study_time: studyTime,
+      study_method: studyMethod, difficulty, details: detailsJson,
+      reactions: {}, comments: [], user_id: session?.user?.id
+    }]);
+    if (error) {
+      alert("保存に失敗しました: " + error.message);
+      return;
+    }
+    setMemo("");
+    setExamFee(""); setQuestionCount(""); setQuestionLength(""); setExamFormat("");
+    setStudyMaterials(""); setStudyHours(""); setEffectiveMethod("");
+    setFrequentTopics(""); setChallengePoints(""); setPassingTips(""); setAdviceForNext("");
+    setSelectedExam(nameToSave);
+    fetchRecords();
+  };
+
+  const handleReaction = async (recordId: number, emoji: string) => {
+    const record = records.find(r => r.id === recordId);
+    const updatedReactions = { ...record.reactions, [emoji]: (record.reactions[emoji] || 0) + 1 };
+    await supabase.from("shikaku_memos").update({ reactions: updatedReactions }).eq("id", recordId);
+    fetchRecords();
+  };
+
+  const addComment = async () => {
+    if (!commentName || !commentText) {
+      alert("名前とコメント内容を入力してください");
+      return;
+    }
+    const newComment = {
+      id: Date.now(),
+      user_name: commentName,
+      text: commentText,
+      created_at: new Date().toISOString()
+    };
+    const updatedComments = [...(selectedRecord.comments || []), newComment];
+    await supabase.from("shikaku_memos").update({ comments: updatedComments }).eq("id", selectedRecord.id);
+    setCommentText("");
+    fetchRecords();
+  };
+
+  const deleteRecord = async (id: number) => {
+    if (!confirm("投稿を削除しますか？")) return;
+    await supabase.from("shikaku_memos").delete().eq("id", id);
+    fetchRecords();
+  };
+
+  const saveEdit = async (id: number) => {
+    await supabase.from("shikaku_memos").update({ memo: editingMemo }).eq("id", id);
+    setEditingId(null);
+    setEditingMemo("");
+    fetchRecords();
+  };
+
+  /* =====================
+      UI補助機能
+  ===================== */
+  const openCommentModal = (r: any) => {
+    setSelectedRecord(r);
+    setCommentName(userName);
+    setCommentText(`@${r.user_name} `);
+  };
+
+  const goHome = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setMenuOpen(false);
+    setSelectedExam(null);
+  };
+
+  const formatDateTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+        <div className="text-indigo-400 text-sm tracking-widest uppercase animate-pulse">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 relative overflow-hidden">
+        <div className="absolute top-[-15%] left-[-10%] w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-[-15%] right-[-10%] w-[500px] h-[500px] bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-indigo-900/30 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="relative bg-white/10 backdrop-blur-xl border border-white/15 p-10 rounded-3xl shadow-2xl w-96">
+          <div className="text-center mb-8">
+            <div className="mx-auto mb-4 flex items-center justify-center">
+              <img src="/widsley1.png" alt="Widsley" className="h-16 w-auto object-contain drop-shadow-lg" style={{ imageRendering: "auto" }} />
+            </div>
+            <h1 className="text-2xl font-black text-white tracking-tight">SHIKAKU SHARE</h1>
+            <p className="text-indigo-300/80 text-xs mt-1.5 tracking-widest uppercase">資格試験メモ共有プラットフォーム</p>
+          </div>
+
+          <button
+            onClick={() => supabase.auth.signInWithOAuth({
+              provider: "google",
+              options: { redirectTo: window.location.origin }
+            })}
+            className="w-full flex items-center justify-center gap-3 bg-white text-gray-700 p-3 rounded-xl font-bold text-sm hover:bg-gray-100 transition-all shadow-lg active:scale-95"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Googleアカウントでログイン
+          </button>
+
+          <p className="text-center text-indigo-400/60 text-[10px] mt-6 tracking-widest uppercase">社員専用サービス</p>
+        </div>
+      </div>
+    );
+  }
+
+  const isAdmin = session?.user?.email === "arima.miura@widsley.com";
+
+  const groupedRecords = examMaster.map(name => ({
+    name,
+    items: records.filter(r => r.exam_name === name)
+  }));
+
+  const filteredGroups = groupedRecords.map(group => ({
+    ...group,
+    items: group.items.filter(r =>
+      searchQuery === "" ||
+      r.exam_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.memo.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+  })).filter(group => {
+    if (searchQuery) return group.items.length > 0;
+    if (selectedExam) return group.name === selectedExam;
+    return true;
+  });
+
+  const isDetailView = !!(selectedExam || searchQuery);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 relative">
+      {/* 背景グロー */}
+      <div className="fixed top-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="fixed bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
+
+      {/* ===== サイドメニュー ===== */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
+          <div className="relative w-72 h-full bg-slate-900/95 backdrop-blur-xl border-r border-white/10 flex flex-col shadow-2xl z-10">
+            <div className="p-6 border-b border-white/10">
+              <img src="/widsley1.png" alt="Widsley" className="h-8 w-auto object-contain drop-shadow mb-4" />
+              <p className="text-[10px] text-indigo-400/60 tracking-[0.2em] uppercase">資格試験メモ共有プラットフォーム</p>
+            </div>
+            <nav className="flex-1 p-4 space-y-1">
+              <button
+                onClick={goHome}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-indigo-100 hover:bg-white/8 transition-all text-sm font-bold"
+              >
+                <span className="text-lg">🏠</span> ホーム
+              </button>
+              <button
+                onClick={() => { setSearchOpen(true); setMenuOpen(false); setTimeout(() => document.getElementById("search-input")?.focus(), 100); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-indigo-100 hover:bg-white/8 transition-all text-sm font-bold"
+              >
+                <span className="text-lg">🔍</span> 検索
+              </button>
+              <button
+                onClick={() => { setMenuOpen(false); document.getElementById("post-form")?.scrollIntoView({ behavior: "smooth" }); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-indigo-100 hover:bg-white/8 transition-all text-sm font-bold"
+              >
+                <span className="text-lg">✏️</span> 新規投稿
+              </button>
+              <div className="pt-4">
+                <p className="text-[9px] text-indigo-500/50 tracking-widest uppercase px-4 mb-2">資格を追加</p>
+                <div className="flex gap-2">
+                  <input
+                    className="bg-white/8 border border-white/15 flex-1 px-3 py-2 rounded-xl text-white placeholder-indigo-400/50 text-xs outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                    placeholder="資格名を入力..."
+                    value={addExamInput}
+                    onChange={e => setAddExamInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { handleAddExam(addExamInput); setAddExamInput(""); } }}
+                  />
+                  <button
+                    onClick={() => { handleAddExam(addExamInput); setAddExamInput(""); }}
+                    className="bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all"
+                  >追加</button>
+                </div>
+              </div>
+              <div className="pt-3">
+                <p className="text-[9px] text-indigo-500/50 tracking-widest uppercase px-4 mb-2">Stats</p>
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-indigo-400">総投稿数</span>
+                    <span className="text-sm font-black text-white">{records.length}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-indigo-400">資格数</span>
+                    <span className="text-sm font-black text-white">{examMaster.length}</span>
+                  </div>
+                </div>
+              </div>
+            </nav>
+            <div className="p-4 border-t border-white/10">
+              {session?.user && (
+                <p className="text-[10px] text-indigo-400/50 px-4 pb-2 truncate">{session.user.email}</p>
+              )}
+              <button
+                onClick={() => { setMenuOpen(false); supabase.auth.signOut(); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:bg-red-500/10 transition-all text-sm font-bold"
+              >
+                <span className="text-lg">🚪</span> ログアウト
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="relative max-w-4xl mx-auto p-6 pb-20">
+
+        {/* ヘッダー */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="flex flex-col justify-center gap-1.5 w-10 h-10 items-center bg-white/8 border border-white/15 rounded-xl hover:bg-white/15 transition-all"
+            >
+              <span className="w-5 h-0.5 bg-white rounded-full"></span>
+              <span className="w-5 h-0.5 bg-white rounded-full"></span>
+              <span className="w-3 h-0.5 bg-white rounded-full self-start ml-2.5"></span>
+            </button>
+            <button onClick={goHome} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <img src="/widsley1.png" alt="Widsley" className="h-8 w-auto object-contain drop-shadow" />
+              <div>
+                <h1 className="text-lg font-black text-white tracking-tight leading-none">SHIKAKU SHARE</h1>
+                <p className="text-indigo-400/70 text-[10px] tracking-widest uppercase">2026</p>
+              </div>
+            </button>
+          </div>
+          <button
+            onClick={() => setSearchOpen(v => !v)}
+            className={classNames(
+              "w-10 h-10 flex items-center justify-center rounded-xl border transition-all text-lg",
+              searchOpen ? "bg-indigo-500/30 border-indigo-400/50 text-indigo-200" : "bg-white/8 border-white/15 text-indigo-300 hover:bg-white/15"
+            )}
+          >🔍</button>
+        </div>
+
+        {/* 検索バー */}
+        {searchOpen && (
+          <div className="mb-6">
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-indigo-400 text-sm">🔍</span>
+              <input
+                id="search-input"
+                type="text"
+                className="w-full bg-white/8 border border-indigo-400/40 rounded-xl pl-10 pr-10 py-3 text-white placeholder-indigo-400/50 text-sm outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
+                placeholder="資格名・感想で検索..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                autoFocus
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-indigo-400 hover:text-white transition-colors text-lg leading-none">&times;</button>
+              )}
+            </div>
+            {searchQuery && (
+              <p className="text-[10px] text-indigo-400/60 mt-2 pl-1">
+                「{searchQuery}」の検索結果: <span className="text-indigo-300 font-bold">{filteredGroups.reduce((acc, g) => acc + g.items.length, 0)} 件</span>
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ===== ホーム：資格カードグリッド ===== */}
+        {!isDetailView ? (
+          <div>
+            {/* セクションタイトル + 資格追加 */}
+            <div className="flex items-center gap-3 mb-4">
+              <p className="text-[10px] font-bold text-indigo-400/60 tracking-[0.3em] uppercase">資格一覧</p>
+              <span className="h-px bg-indigo-500/20 flex-1"></span>
+              <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-widest">
+                {groupedRecords.length} 資格
+              </span>
+            </div>
+            <div className="flex gap-2 mb-6">
+              <input
+                className="bg-white/8 border border-white/15 flex-1 px-4 py-2.5 rounded-xl text-white placeholder-indigo-400/50 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                placeholder="新しい資格名を入力して追加..."
+                value={addExamInput}
+                onChange={e => setAddExamInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { handleAddExam(addExamInput); setAddExamInput(""); } }}
+              />
+              <button
+                onClick={() => { handleAddExam(addExamInput); setAddExamInput(""); }}
+                className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 rounded-xl text-sm font-bold hover:from-indigo-500 hover:to-blue-500 transition-all shadow-lg shadow-indigo-500/20 active:scale-95 whitespace-nowrap"
+              >+ 追加</button>
+            </div>
+
+            {groupedRecords.length === 0 ? (
+              <div className="text-center py-24 text-indigo-400/40">
+                <p className="text-4xl mb-4">📭</p>
+                <p className="text-sm font-bold">まだ投稿がありません</p>
+                <p className="text-xs mt-1">最初の資格情報を共有しましょう</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {groupedRecords.map((group, i) => {
+                  const avgDiff = group.items.length > 0
+                    ? Math.round(group.items.reduce((s: number, r: any) => s + (r.difficulty || 0), 0) / group.items.length)
+                    : 0;
+                  const latestDate = group.items[0]?.created_at;
+                  const grad = CARD_GRADIENTS[i % CARD_GRADIENTS.length];
+                  const isEditing = editingExam === group.name;
+                  return (
+                    <div
+                      key={group.name}
+                      className={`bg-gradient-to-br ${grad} backdrop-blur-xl border border-white/12 rounded-2xl p-6 text-left transition-all duration-200 shadow-xl group relative ${!isEditing ? "hover:border-indigo-400/40 hover:scale-[1.02] cursor-pointer" : "border-indigo-400/40"}`}
+                      onClick={() => { if (!isEditing) setSelectedExam(group.name); }}
+                    >
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="w-11 h-11 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-xl shadow-inner">
+                          📋
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {/* 編集・削除ボタン（ホバーで表示） */}
+                          {isAdmin && <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all" onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={() => { setEditingExam(group.name); setEditingExamName(group.name); }}
+                              className="text-[10px] font-bold text-indigo-300/60 hover:text-indigo-200 bg-white/10 hover:bg-white/20 px-2 py-1 rounded-lg transition-all"
+                            >編集</button>
+                            <button
+                              onClick={() => deleteExam(group.name)}
+                              className="text-[10px] font-bold text-red-400/60 hover:text-red-300 bg-white/10 hover:bg-red-500/20 px-2 py-1 rounded-lg transition-all"
+                            >削除</button>
+                          </div>}
+                          <span className="bg-black/20 border border-white/10 text-indigo-200 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase">
+                            {group.items.length} Posts
+                          </span>
+                        </div>
+                      </div>
+
+                      {isEditing ? (
+                        <div className="mb-1" onClick={e => e.stopPropagation()}>
+                          <input
+                            autoFocus
+                            className="bg-white/15 border border-indigo-400/60 rounded-xl px-3 py-1.5 text-white font-black text-base w-full outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                            value={editingExamName}
+                            onChange={e => setEditingExamName(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") renameExam(group.name, editingExamName);
+                              if (e.key === "Escape") setEditingExam(null);
+                            }}
+                          />
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => renameExam(group.name, editingExamName)} className="bg-indigo-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-indigo-500 transition-all">保存</button>
+                            <button onClick={() => setEditingExam(null)} className="bg-white/15 text-white/70 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <h3 className="text-white font-black text-base leading-tight mb-1 group-hover:text-indigo-100 transition-colors">
+                          {group.name}
+                        </h3>
+                      )}
+
+                      {avgDiff > 0 && (
+                        <div className="flex items-center gap-1.5 mb-3">
+                          <span className="text-[9px] text-indigo-300/50 uppercase tracking-widest">難易度</span>
+                          <span className="text-yellow-400 text-xs">{"★".repeat(avgDiff)}<span className="text-white/15">{"★".repeat(5 - avgDiff)}</span></span>
+                        </div>
+                      )}
+
+                      {!isEditing && (
+                        <div className="mt-3 pt-3 border-t border-white/8 flex items-center justify-between">
+                          {latestDate ? (
+                            <span className="text-[9px] text-indigo-400/40">
+                              最終更新: {new Date(latestDate).toLocaleDateString()}
+                            </span>
+                          ) : <span />}
+                          <span className="text-indigo-400/50 group-hover:text-indigo-300 transition-colors text-sm">→</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ===== 詳細ビュー ===== */
+          <div>
+            {/* パンくず・戻るボタン */}
+            {selectedExam && (
+              <div className="flex items-center gap-2 mb-6 flex-wrap">
+                <button
+                  onClick={() => { setSelectedExam(null); setSearchQuery(""); setSearchOpen(false); }}
+                  className="flex items-center gap-1.5 text-xs font-bold text-indigo-400 hover:text-white bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all"
+                >
+                  ← ホームに戻る
+                </button>
+                <span className="text-indigo-500/40 text-xs">/</span>
+                <span className="text-white font-bold text-sm">{selectedExam}</span>
+                <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-widest ml-auto">
+                  {filteredGroups[0]?.items.length ?? 0} Posts
+                </span>
+              </div>
+            )}
+
+            {/* 投稿フォーム */}
+            <div id="post-form" className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl mb-8 shadow-xl overflow-hidden">
+              <button
+                onClick={() => setPostFormOpen(v => !v)}
+                className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/5 transition-all"
+              >
+                <h2 className="text-[10px] font-bold text-indigo-300 tracking-[0.2em] uppercase">✏️ New Post</h2>
+                <span className={`text-indigo-400 text-xs transition-transform duration-200 ${postFormOpen ? "rotate-180" : ""}`}>▼</span>
+              </button>
+
+              {postFormOpen && (
+              <div className="px-6 pb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <input
+                  className="bg-white/8 border border-white/15 p-2.5 rounded-xl text-white placeholder-indigo-400/50 text-sm outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
+                  placeholder="お名前 ★"
+                  value={userName}
+                  onChange={e => setUserName(e.target.value)}
+                />
+                <select
+                  className="bg-slate-800 border border-white/15 p-2.5 rounded-xl text-white text-sm outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
+                  value={examName || selectedExam || ""}
+                  onChange={e => setExamName(e.target.value)}
+                >
+                  <option value="">資格を選択 ★</option>
+                  {examMaster.map(name => <option key={name} value={name}>{name}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-5">
+
+                <div>
+                  <label className="block text-[10px] text-indigo-400 font-bold tracking-widest uppercase mb-1.5">一言コメント ★</label>
+                  <textarea
+                    className="bg-white/8 border border-white/15 p-3 w-full h-20 rounded-xl text-white placeholder-indigo-400/50 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none"
+                    placeholder="合格した感想を一言で..."
+                    value={memo}
+                    onChange={e => setMemo(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-indigo-400 font-bold tracking-widest uppercase mb-1.5">難易度</label>
+                  <div className="flex gap-1 items-center">
+                    {[1,2,3,4,5].map(n => (
+                      <button key={n} onClick={() => setDifficulty(n)} className={`text-2xl transition-transform hover:scale-110 ${n <= difficulty ? "text-yellow-400" : "text-white/15"}`}>★</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                    <span className="h-px bg-indigo-500/30 flex-1"></span>試験概要<span className="h-px bg-indigo-500/30 flex-1"></span>
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "受験費用", placeholder: "例: 7,500円", val: examFee, set: setExamFee },
+                      { label: "問題数", placeholder: "例: 60問", val: questionCount, set: setQuestionCount },
+                      { label: "問題文の長さ", placeholder: "例: 短め・普通・長め", val: questionLength, set: setQuestionLength },
+                      { label: "出題形式", placeholder: "例: 四択・記述式", val: examFormat, set: setExamFormat },
+                    ].map(({ label, placeholder, val, set }) => (
+                      <div key={label}>
+                        <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">{label}</label>
+                        <input
+                          className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                          placeholder={placeholder}
+                          value={val}
+                          onChange={e => set(e.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                    <span className="h-px bg-indigo-500/30 flex-1"></span>勉強について<span className="h-px bg-indigo-500/30 flex-1"></span>
+                  </p>
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">勉強時間</label>
+                        <input className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all" placeholder="例: 3ヶ月・1日2時間" value={studyHours} onChange={e => setStudyHours(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">使用教材</label>
+                        <input className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all" placeholder="例: 公式テキスト・過去問" value={studyMaterials} onChange={e => setStudyMaterials(e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">効果があった勉強法</label>
+                      <textarea className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none h-16" placeholder="例: 過去問を繰り返し解いた" value={effectiveMethod} onChange={e => setEffectiveMethod(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                    <span className="h-px bg-indigo-500/30 flex-1"></span>試験内容<span className="h-px bg-indigo-500/30 flex-1"></span>
+                  </p>
+                  <div className="space-y-2">
+                    {[
+                      { label: "頻出の内容", placeholder: "例: ○○分野が多く出題された", val: frequentTopics, set: setFrequentTopics },
+                      { label: "苦戦したポイント", placeholder: "例: 計算問題が難しかった", val: challengePoints, set: setChallengePoints },
+                    ].map(({ label, placeholder, val, set }) => (
+                      <div key={label}>
+                        <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">{label}</label>
+                        <textarea className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none h-16" placeholder={placeholder} value={val} onChange={e => set(e.target.value)} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                    <span className="h-px bg-indigo-500/30 flex-1"></span>合格に向けて<span className="h-px bg-indigo-500/30 flex-1"></span>
+                  </p>
+                  <div className="space-y-2">
+                    {[
+                      { label: "合格へのコツ", placeholder: "例: 苦手分野を重点的に対策した", val: passingTips, set: setPassingTips },
+                      { label: "これから受ける方へのアドバイス", placeholder: "例: 早めに申し込みをおすすめします", val: adviceForNext, set: setAdviceForNext },
+                    ].map(({ label, placeholder, val, set }) => (
+                      <div key={label}>
+                        <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">{label}</label>
+                        <textarea className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none h-16" placeholder={placeholder} value={val} onChange={e => set(e.target.value)} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+
+              <button
+                onClick={saveRecord}
+                className="w-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-3 rounded-xl font-bold mt-4 text-sm hover:from-blue-400 hover:to-indigo-500 shadow-lg shadow-indigo-500/30 active:scale-95 transition-all"
+              >投稿を保存</button>
+              </div>
+              )}
+            </div>
+
+            {/* 一覧表示 */}
+            <div className="space-y-5">
+              {filteredGroups.length === 0 && (
+                <div className="text-center py-16 text-indigo-400/40">
+                  <p className="text-3xl mb-3">📭</p>
+                  <p className="text-sm">投稿が見つかりません</p>
+                </div>
+              )}
+              {filteredGroups.map(group => (
+                <div key={group.name} className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl overflow-hidden shadow-xl">
+                  {searchQuery && (
+                    <div className="px-5 py-3 flex justify-between items-center border-b border-white/10 bg-indigo-950/40">
+                      <span className="text-sm font-bold text-indigo-200">📁 {group.name}</span>
+                      <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase">{group.items.length} Posts</span>
+                    </div>
+                  )}
+                  <div className="p-5 space-y-5">
+                    {group.items.map(r => (
+                      <div key={r.id} className="border-b border-white/8 last:border-0 pb-5 group">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <span className="font-bold text-white text-sm">{r.user_name}</span>
+                            <span className="ml-3 text-[10px] text-indigo-400/60">{formatDateTime(r.created_at)}</span>
+                          </div>
+                          <span className="text-yellow-400 text-xs">{"★".repeat(r.difficulty)}</span>
+                        </div>
+
+                        {editingId === r.id ? (
+                          <div className="mt-2 space-y-2">
+                            <textarea
+                              className="bg-white/8 border border-white/15 p-2 w-full rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                              value={editingMemo}
+                              onChange={e => setEditingMemo(e.target.value)}
+                            />
+                            <div className="flex gap-2">
+                              <button onClick={() => saveEdit(r.id)} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
+                              <button onClick={() => setEditingId(null)} className="bg-white/15 text-white/70 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-indigo-100/80 text-sm mb-3 whitespace-pre-wrap leading-relaxed">{r.memo}</p>
+                        )}
+
+                        <div className="flex items-center gap-3">
+                          <div className="flex gap-1">
+                            {REACTION_OPTIONS.map(emoji => (
+                              <button key={emoji} onClick={() => handleReaction(r.id, emoji)} className="text-xs bg-white/5 border border-white/10 rounded-full px-2 py-0.5 hover:bg-indigo-500/20 hover:border-indigo-400/40 active:scale-125 transition-all">
+                                {emoji} <span className="font-bold text-indigo-300/70">{r.reactions?.[emoji] || 0}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex gap-3 ml-auto items-center">
+                            {(isAdmin || r.user_id === session?.user?.id) && (
+                              <>
+                                <button onClick={() => { setEditingId(r.id); setEditingMemo(r.memo); }} className="text-[10px] font-bold text-indigo-400/40 hover:text-indigo-300 opacity-0 group-hover:opacity-100 transition-all">編集</button>
+                                <button onClick={() => deleteRecord(r.id)} className="text-[10px] font-bold text-indigo-400/40 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">削除</button>
+                              </>
+                            )}
+                            <button onClick={() => openCommentModal(r)} className="text-xs font-bold text-indigo-400 hover:text-indigo-200 flex items-center gap-1 transition-colors">
+                              💬 返信 ({r.comments?.length || 0})
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* コメント・詳細モーダル */}
+      <Dialog open={!!selectedRecord} onClose={() => setSelectedRecord(null)} className="relative z-50">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" aria-hidden="true" />
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <Dialog.Panel className="bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="p-5 border-b border-white/10 flex justify-between items-center bg-indigo-950/50">
+              <div>
+                <Dialog.Title className="text-sm font-bold text-white tracking-wide">スレッド形式の返信</Dialog.Title>
+                {selectedRecord?.exam_name && (
+                  <p className="text-[10px] text-indigo-400/70 mt-0.5 tracking-wide">📋 {selectedRecord.exam_name}</p>
+                )}
+              </div>
+              <button onClick={() => setSelectedRecord(null)} className="text-indigo-400 hover:text-white text-2xl transition-colors leading-none">&times;</button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              <div className="border-l-4 border-indigo-500 pl-4 py-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-xs font-black text-indigo-400 uppercase tracking-widest">{selectedRecord?.user_name}</p>
+                  <span className="text-[9px] text-indigo-500/50">{selectedRecord && formatDateTime(selectedRecord.created_at)}</span>
+                </div>
+                <p className="text-indigo-100/90 text-sm leading-relaxed">{selectedRecord?.memo}</p>
+
+                {(() => {
+                  if (!selectedRecord?.details) return null;
+                  let d: any = {};
+                  try { d = JSON.parse(selectedRecord.details); } catch { return null; }
+                  const rows = [
+                    { label: "受験費用", val: d.examFee },
+                    { label: "問題数", val: d.questionCount },
+                    { label: "問題文の長さ", val: d.questionLength },
+                    { label: "出題形式", val: d.examFormat },
+                    { label: "勉強時間", val: d.studyHours },
+                    { label: "使用教材", val: d.studyMaterials },
+                    { label: "効果があった勉強法", val: d.effectiveMethod },
+                    { label: "頻出の内容", val: d.frequentTopics },
+                    { label: "苦戦したポイント", val: d.challengePoints },
+                    { label: "合格へのコツ", val: d.passingTips },
+                    { label: "これから受ける方へのアドバイス", val: d.adviceForNext },
+                  ].filter(r => r.val);
+                  if (rows.length === 0) return null;
+                  return (
+                    <div className="mt-4 bg-indigo-950/70 border border-indigo-500/20 rounded-2xl p-4 space-y-2">
+                      <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase flex items-center gap-2 mb-3">
+                        <span className="h-px bg-indigo-500/30 flex-1"></span>詳細情報<span className="h-px bg-indigo-500/30 flex-1"></span>
+                      </p>
+                      {rows.map(({ label, val }) => (
+                        <div key={label} className="bg-white/5 border border-white/8 rounded-xl p-3">
+                          <p className="text-[9px] text-indigo-400/60 font-bold tracking-widest uppercase mb-1">{label}</p>
+                          <p className="text-xs text-indigo-100/80 leading-relaxed whitespace-pre-wrap">{val}</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-px bg-white/10 flex-1"></div>
+                  <h4 className="text-[10px] font-bold text-indigo-500/60 tracking-widest uppercase">Replies</h4>
+                  <div className="h-px bg-white/10 flex-1"></div>
+                </div>
+                {(selectedRecord?.comments || []).length === 0 ? (
+                  <p className="text-xs text-indigo-500/50 italic text-center py-4">まだ返信はありません</p>
+                ) : (
+                  selectedRecord.comments.map((c: any) => (
+                    <div key={c.id}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs font-bold text-indigo-300">{c.user_name}</span>
+                        <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
+                      </div>
+                      <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
+                        {c.text.startsWith('@') ? (
+                          <>
+                            <span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>
+                            {c.text.substring(c.text.split(' ')[0].length)}
+                          </>
+                        ) : c.text}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-white/10 bg-indigo-950/40">
+              <div className="flex gap-2 mb-2">
+                <input
+                  className="bg-white/8 border border-white/15 p-2 flex-1 rounded-xl text-xs text-white placeholder-indigo-400/50 outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                  placeholder="お名前"
+                  value={commentName}
+                  onChange={e => setCommentName(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2 items-end">
+                <textarea
+                  className="bg-white/8 border border-white/15 p-3 flex-1 rounded-xl text-sm text-white placeholder-indigo-400/50 h-20 outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none"
+                  placeholder="返信内容を入力してください..."
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                />
+                <button
+                  onClick={addComment}
+                  className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm hover:from-blue-400 hover:to-indigo-500 shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
+                >送信</button>
+              </div>
+            </div>
+          </Dialog.Panel>
+        </div>
+      </Dialog>
+    </div>
+  );
+}
