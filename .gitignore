@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# compiled js from ts
+app/*.js
+app/*.js.map
+next.config.js
+next.config.js.map
+
+.vercel
