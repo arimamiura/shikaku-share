@@ -47,6 +47,9 @@ export default function Page() {
   const [commentName, setCommentName] = useState("");
   const [commentText, setCommentText] = useState("");
 
+  // 投稿詳細ページ
+  const [selectedPost, setSelectedPost] = useState<any | null>(null);
+
   /* =====================
       入力用
   ===================== */
@@ -258,6 +261,7 @@ export default function Page() {
     setSearchQuery("");
     setMenuOpen(false);
     setSelectedExam(null);
+    setSelectedPost(null);
   };
 
   const formatDateTime = (dateStr: string) => {
@@ -332,6 +336,205 @@ export default function Page() {
   });
 
   const isDetailView = !!(selectedExam || searchQuery);
+
+  // ===== 投稿詳細ページ（早期return） =====
+  if (selectedPost) {
+    let details: any = {};
+    try { if (selectedPost.details) details = JSON.parse(selectedPost.details); } catch {}
+    const detailSections = [
+      {
+        title: "試験概要",
+        fields: [
+          { label: "受験費用", val: details.examFee },
+          { label: "問題数", val: details.questionCount },
+          { label: "問題文の長さ", val: details.questionLength },
+          { label: "出題形式", val: details.examFormat },
+        ]
+      },
+      {
+        title: "勉強について",
+        fields: [
+          { label: "勉強時間", val: details.studyHours },
+          { label: "使用教材", val: details.studyMaterials },
+          { label: "効果があった勉強法", val: details.effectiveMethod },
+        ]
+      },
+      {
+        title: "試験内容",
+        fields: [
+          { label: "頻出の内容", val: details.frequentTopics },
+          { label: "苦戦したポイント", val: details.challengePoints },
+        ]
+      },
+      {
+        title: "合格に向けて",
+        fields: [
+          { label: "合格へのコツ", val: details.passingTips },
+          { label: "これから受ける方へのアドバイス", val: details.adviceForNext },
+        ]
+      },
+    ];
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+        <div className="max-w-2xl mx-auto p-6 pb-20">
+          {/* 戻るボタン */}
+          <div className="flex items-center gap-2 mb-6 flex-wrap">
+            <button
+              onClick={() => setSelectedPost(null)}
+              className="flex items-center gap-1.5 text-xs font-bold text-indigo-400 hover:text-white bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all"
+            >
+              ← 一覧に戻る
+            </button>
+            <span className="text-indigo-500/40 text-xs">/</span>
+            <span className="text-white/60 text-xs">{selectedPost.exam_name}</span>
+            <span className="text-indigo-500/40 text-xs">/</span>
+            <span className="text-white text-xs font-bold">{selectedPost.user_name}</span>
+          </div>
+
+          {/* ヘッダー */}
+          <div className="bg-white/8 border border-white/15 rounded-2xl p-6 mb-4 shadow-xl">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿者</p>
+                <p className="text-white font-black text-lg">{selectedPost.user_name}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿日時</p>
+                <p className="text-indigo-300/70 text-xs">{formatDateTime(selectedPost.created_at)}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 px-3 py-1 rounded-full text-xs font-bold">📋 {selectedPost.exam_name}</span>
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-indigo-400/50 uppercase tracking-widest">難易度</span>
+                <span className="text-yellow-400 text-sm">{"★".repeat(selectedPost.difficulty)}<span className="text-white/15">{"★".repeat(5 - selectedPost.difficulty)}</span></span>
+              </div>
+            </div>
+          </div>
+
+          {/* 一言コメント */}
+          <div className="bg-white/8 border border-indigo-400/20 rounded-2xl p-5 mb-4 shadow-xl">
+            <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+              <span className="h-px bg-indigo-500/30 flex-1"></span>一言コメント<span className="h-px bg-indigo-500/30 flex-1"></span>
+            </p>
+            {editingId === selectedPost.id ? (
+              <div className="space-y-2">
+                <textarea
+                  className="bg-white/8 border border-white/15 p-2 w-full rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                  value={editingMemo}
+                  onChange={e => setEditingMemo(e.target.value)}
+                  rows={4}
+                />
+                <div className="flex gap-2">
+                  <button onClick={async () => { await saveEdit(selectedPost.id); setSelectedPost((prev: any) => ({ ...prev, memo: editingMemo })); }} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
+                  <button onClick={() => setEditingId(null)} className="bg-white/15 text-white/70 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-indigo-100/90 text-sm leading-relaxed whitespace-pre-wrap">{selectedPost.memo}</p>
+            )}
+          </div>
+
+          {/* 詳細セクション */}
+          {detailSections.map(section => {
+            const visible = section.fields.filter(f => f.val);
+            if (visible.length === 0) return null;
+            return (
+              <div key={section.title} className="bg-white/8 border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
+                <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>{section.title}<span className="h-px bg-indigo-500/30 flex-1"></span>
+                </p>
+                <div className="space-y-3">
+                  {visible.map(({ label, val }) => (
+                    <div key={label} className="bg-white/5 border border-white/8 rounded-xl p-3">
+                      <p className="text-[9px] text-indigo-400/60 font-bold tracking-widest uppercase mb-1.5">{label}</p>
+                      <p className="text-sm text-indigo-100/85 leading-relaxed whitespace-pre-wrap">{val}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* リアクション */}
+          <div className="bg-white/8 border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
+            <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+              <span className="h-px bg-indigo-500/30 flex-1"></span>リアクション<span className="h-px bg-indigo-500/30 flex-1"></span>
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {REACTION_OPTIONS.map(emoji => (
+                <button key={emoji} onClick={async () => { await handleReaction(selectedPost.id, emoji); const updated = records.find(r => r.id === selectedPost.id); if (updated) setSelectedPost(updated); }} className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 hover:bg-indigo-500/20 hover:border-indigo-400/40 active:scale-125 transition-all">
+                  {emoji} <span className="font-bold text-indigo-300/70">{selectedPost.reactions?.[emoji] || 0}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* コメント */}
+          <div className="bg-white/8 border border-white/15 rounded-2xl overflow-hidden shadow-xl">
+            <div className="px-5 py-4 border-b border-white/10 bg-indigo-950/40">
+              <p className="text-xs font-bold text-indigo-300 tracking-widest uppercase">💬 返信 ({selectedPost.comments?.length || 0})</p>
+            </div>
+            <div className="p-5 space-y-4">
+              {(selectedPost.comments || []).length === 0 ? (
+                <p className="text-xs text-indigo-500/50 italic text-center py-4">まだ返信はありません</p>
+              ) : (
+                selectedPost.comments.map((c: any) => (
+                  <div key={c.id}>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-indigo-300">{c.user_name}</span>
+                      <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
+                    </div>
+                    <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
+                      {c.text.startsWith('@') ? (
+                        <><span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>{c.text.substring(c.text.split(' ')[0].length)}</>
+                      ) : c.text}
+                    </p>
+                  </div>
+                ))
+              )}
+              <div className="pt-3 border-t border-white/10 space-y-2">
+                <input
+                  className="bg-white/8 border border-white/15 p-2.5 w-full rounded-xl text-xs text-white placeholder-indigo-400/50 outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                  placeholder="お名前"
+                  value={commentName}
+                  onChange={e => setCommentName(e.target.value)}
+                />
+                <div className="flex gap-2 items-end">
+                  <textarea
+                    className="bg-white/8 border border-white/15 p-3 flex-1 rounded-xl text-sm text-white placeholder-indigo-400/50 h-20 outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none"
+                    placeholder="返信内容を入力してください..."
+                    value={commentText}
+                    onChange={e => setCommentText(e.target.value)}
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!commentName || !commentText) { alert("名前とコメント内容を入力してください"); return; }
+                      const newComment = { id: Date.now(), user_name: commentName, text: commentText, created_at: new Date().toISOString() };
+                      const updatedComments = [...(selectedPost.comments || []), newComment];
+                      await supabase.from("shikaku_memos").update({ comments: updatedComments }).eq("id", selectedPost.id);
+                      setCommentText("");
+                      setSelectedPost((prev: any) => ({ ...prev, comments: updatedComments }));
+                    }}
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm hover:from-blue-400 hover:to-indigo-500 shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
+                  >送信</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 管理ボタン */}
+          {(isAdmin || selectedPost.user_id === session?.user?.id) && (
+            <div className="flex gap-2 mt-4 justify-end">
+              <button onClick={() => { setEditingId(selectedPost.id); setEditingMemo(selectedPost.memo); }} className="text-xs font-bold text-indigo-400 hover:text-indigo-200 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all">編集</button>
+              <button onClick={async () => { if (!confirm("投稿を削除しますか？")) return; await supabase.from("shikaku_memos").delete().eq("id", selectedPost.id); setSelectedPost(null); fetchRecords(); }} className="text-xs font-bold text-red-400 hover:text-red-300 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-all">削除</button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 relative">
@@ -742,7 +945,7 @@ export default function Page() {
               )}
             </div>
 
-            {/* 一覧表示 */}
+            {/* 一覧表示（見出しカード） */}
             <div className="space-y-5">
               {filteredGroups.length === 0 && (
                 <div className="text-center py-16 text-indigo-400/40">
@@ -758,58 +961,236 @@ export default function Page() {
                       <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase">{group.items.length} Posts</span>
                     </div>
                   )}
-                  <div className="p-5 space-y-5">
+                  <div className="p-3 space-y-2">
                     {group.items.map(r => (
-                      <div key={r.id} className="border-b border-white/8 last:border-0 pb-5 group">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <span className="font-bold text-white text-sm">{r.user_name}</span>
-                            <span className="ml-3 text-[10px] text-indigo-400/60">{formatDateTime(r.created_at)}</span>
+                      <button
+                        key={r.id}
+                        onClick={() => setSelectedPost(r)}
+                        className="w-full text-left bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-xl px-4 py-3 transition-all group"
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-bold text-white text-sm shrink-0">{r.user_name}</span>
+                            <span className="text-yellow-400 text-xs shrink-0">{"★".repeat(r.difficulty)}</span>
+                            <span className="text-indigo-100/60 text-sm truncate">{r.memo}</span>
                           </div>
-                          <span className="text-yellow-400 text-xs">{"★".repeat(r.difficulty)}</span>
-                        </div>
-
-                        {editingId === r.id ? (
-                          <div className="mt-2 space-y-2">
-                            <textarea
-                              className="bg-white/8 border border-white/15 p-2 w-full rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-                              value={editingMemo}
-                              onChange={e => setEditingMemo(e.target.value)}
-                            />
-                            <div className="flex gap-2">
-                              <button onClick={() => saveEdit(r.id)} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
-                              <button onClick={() => setEditingId(null)} className="bg-white/15 text-white/70 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-indigo-100/80 text-sm mb-3 whitespace-pre-wrap leading-relaxed">{r.memo}</p>
-                        )}
-
-                        <div className="flex items-center gap-3">
-                          <div className="flex gap-1">
-                            {REACTION_OPTIONS.map(emoji => (
-                              <button key={emoji} onClick={() => handleReaction(r.id, emoji)} className="text-xs bg-white/5 border border-white/10 rounded-full px-2 py-0.5 hover:bg-indigo-500/20 hover:border-indigo-400/40 active:scale-125 transition-all">
-                                {emoji} <span className="font-bold text-indigo-300/70">{r.reactions?.[emoji] || 0}</span>
-                              </button>
-                            ))}
-                          </div>
-                          <div className="flex gap-3 ml-auto items-center">
-                            {(isAdmin || r.user_id === session?.user?.id) && (
-                              <>
-                                <button onClick={() => { setEditingId(r.id); setEditingMemo(r.memo); }} className="text-[10px] font-bold text-indigo-400/40 hover:text-indigo-300 opacity-0 group-hover:opacity-100 transition-all">編集</button>
-                                <button onClick={() => deleteRecord(r.id)} className="text-[10px] font-bold text-indigo-400/40 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">削除</button>
-                              </>
-                            )}
-                            <button onClick={() => openCommentModal(r)} className="text-xs font-bold text-indigo-400 hover:text-indigo-200 flex items-center gap-1 transition-colors">
-                              💬 返信 ({r.comments?.length || 0})
-                            </button>
+                          <div className="flex items-center gap-3 ml-3 shrink-0">
+                            <span className="text-[10px] text-indigo-400/50">{formatDateTime(r.created_at)}</span>
+                            <span className="text-indigo-400/50 group-hover:text-indigo-300 transition-colors text-sm">→</span>
                           </div>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ===== 投稿詳細ページ（早期returnに移動済み） ===== */}
+        {false && (
+          <div>
+            <div>
+              {/* 戻るボタン */}
+              <div className="flex items-center gap-2 mb-6 flex-wrap">
+                <button
+                  onClick={() => setSelectedPost(null)}
+                  className="flex items-center gap-1.5 text-xs font-bold text-indigo-400 hover:text-white bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all"
+                >
+                  ← 一覧に戻る
+                </button>
+                <span className="text-indigo-500/40 text-xs">/</span>
+                <span className="text-white/60 text-xs">{selectedPost.exam_name}</span>
+                <span className="text-indigo-500/40 text-xs">/</span>
+                <span className="text-white text-xs font-bold">{selectedPost.user_name}</span>
+              </div>
+
+              {/* ヘッダー情報 */}
+              <div className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl p-6 mb-4 shadow-xl">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿者</p>
+                    <p className="text-white font-black text-lg">{selectedPost.user_name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿日時</p>
+                    <p className="text-indigo-300/70 text-xs">{formatDateTime(selectedPost.created_at)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 px-3 py-1 rounded-full text-xs font-bold">📋 {selectedPost.exam_name}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-indigo-400/50 uppercase tracking-widest">難易度</span>
+                    <span className="text-yellow-400 text-sm">{"★".repeat(selectedPost.difficulty)}<span className="text-white/15">{"★".repeat(5 - selectedPost.difficulty)}</span></span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 一言コメント */}
+              <div className="bg-white/8 backdrop-blur-xl border border-indigo-400/20 rounded-2xl p-5 mb-4 shadow-xl">
+                <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>一言コメント<span className="h-px bg-indigo-500/30 flex-1"></span>
+                </p>
+                {editingId === selectedPost.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      className="bg-white/8 border border-white/15 p-2 w-full rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                      value={editingMemo}
+                      onChange={e => setEditingMemo(e.target.value)}
+                      rows={4}
+                    />
+                    <div className="flex gap-2">
+                      <button onClick={async () => { await saveEdit(selectedPost.id); setSelectedPost((prev: any) => ({ ...prev, memo: editingMemo })); }} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
+                      <button onClick={() => setEditingId(null)} className="bg-white/15 text-white/70 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-indigo-100/90 text-sm leading-relaxed whitespace-pre-wrap">{selectedPost.memo}</p>
+                )}
+              </div>
+
+              {/* 詳細情報 */}
+              {(() => {
+                if (!selectedPost.details) return null;
+                let d: any = {};
+                try { d = JSON.parse(selectedPost.details); } catch { return null; }
+                const sections = [
+                  {
+                    title: "試験概要",
+                    fields: [
+                      { label: "受験費用", val: d.examFee },
+                      { label: "問題数", val: d.questionCount },
+                      { label: "問題文の長さ", val: d.questionLength },
+                      { label: "出題形式", val: d.examFormat },
+                    ]
+                  },
+                  {
+                    title: "勉強について",
+                    fields: [
+                      { label: "勉強時間", val: d.studyHours },
+                      { label: "使用教材", val: d.studyMaterials },
+                      { label: "効果があった勉強法", val: d.effectiveMethod },
+                    ]
+                  },
+                  {
+                    title: "試験内容",
+                    fields: [
+                      { label: "頻出の内容", val: d.frequentTopics },
+                      { label: "苦戦したポイント", val: d.challengePoints },
+                    ]
+                  },
+                  {
+                    title: "合格に向けて",
+                    fields: [
+                      { label: "合格へのコツ", val: d.passingTips },
+                      { label: "これから受ける方へのアドバイス", val: d.adviceForNext },
+                    ]
+                  },
+                ];
+                return (
+                  <>
+                    {sections.map(section => {
+                      const visibleFields = section.fields.filter(f => f.val);
+                      if (visibleFields.length === 0) return null;
+                      return (
+                        <div key={section.title} className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
+                          <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+                            <span className="h-px bg-indigo-500/30 flex-1"></span>{section.title}<span className="h-px bg-indigo-500/30 flex-1"></span>
+                          </p>
+                          <div className="space-y-3">
+                            {visibleFields.map(({ label, val }) => (
+                              <div key={label} className="bg-white/5 border border-white/8 rounded-xl p-3">
+                                <p className="text-[9px] text-indigo-400/60 font-bold tracking-widest uppercase mb-1.5">{label}</p>
+                                <p className="text-sm text-indigo-100/85 leading-relaxed whitespace-pre-wrap">{val}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+
+              {/* リアクション */}
+              <div className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
+                <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>リアクション<span className="h-px bg-indigo-500/30 flex-1"></span>
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  {REACTION_OPTIONS.map(emoji => (
+                    <button key={emoji} onClick={() => handleReaction(selectedPost.id, emoji)} className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 hover:bg-indigo-500/20 hover:border-indigo-400/40 active:scale-125 transition-all">
+                      {emoji} <span className="font-bold text-indigo-300/70">{selectedPost.reactions?.[emoji] || 0}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* コメント */}
+              <div className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl overflow-hidden shadow-xl">
+                <div className="px-5 py-4 border-b border-white/10 bg-indigo-950/40">
+                  <p className="text-xs font-bold text-indigo-300 tracking-widest uppercase">💬 返信 ({selectedPost.comments?.length || 0})</p>
+                </div>
+                <div className="p-5 space-y-4">
+                  {(selectedPost.comments || []).length === 0 ? (
+                    <p className="text-xs text-indigo-500/50 italic text-center py-4">まだ返信はありません</p>
+                  ) : (
+                    selectedPost.comments.map((c: any) => (
+                      <div key={c.id}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs font-bold text-indigo-300">{c.user_name}</span>
+                          <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
+                        </div>
+                        <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
+                          {c.text.startsWith('@') ? (
+                            <>
+                              <span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>
+                              {c.text.substring(c.text.split(' ')[0].length)}
+                            </>
+                          ) : c.text}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                  <div className="pt-3 border-t border-white/10 space-y-2">
+                    <input
+                      className="bg-white/8 border border-white/15 p-2.5 w-full rounded-xl text-xs text-white placeholder-indigo-400/50 outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                      placeholder="お名前"
+                      value={commentName}
+                      onChange={e => setCommentName(e.target.value)}
+                    />
+                    <div className="flex gap-2 items-end">
+                      <textarea
+                        className="bg-white/8 border border-white/15 p-3 flex-1 rounded-xl text-sm text-white placeholder-indigo-400/50 h-20 outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none"
+                        placeholder="返信内容を入力してください..."
+                        value={commentText}
+                        onChange={e => setCommentText(e.target.value)}
+                      />
+                      <button
+                        onClick={async () => {
+                          if (!commentName || !commentText) { alert("名前とコメント内容を入力してください"); return; }
+                          const newComment = { id: Date.now(), user_name: commentName, text: commentText, created_at: new Date().toISOString() };
+                          const updatedComments = [...(selectedPost.comments || []), newComment];
+                          await supabase.from("shikaku_memos").update({ comments: updatedComments }).eq("id", selectedPost.id);
+                          setCommentText("");
+                          setSelectedPost((prev: any) => ({ ...prev, comments: updatedComments }));
+                          fetchRecords();
+                        }}
+                        className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm hover:from-blue-400 hover:to-indigo-500 shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
+                      >送信</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 管理ボタン */}
+              {(isAdmin || selectedPost.user_id === session?.user?.id) && (
+                <div className="flex gap-2 mt-4 justify-end">
+                  <button onClick={() => { setEditingId(selectedPost.id); setEditingMemo(selectedPost.memo); }} className="text-xs font-bold text-indigo-400 hover:text-indigo-200 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all">編集</button>
+                  <button onClick={async () => { if (!confirm("投稿を削除しますか？")) return; await supabase.from("shikaku_memos").delete().eq("id", selectedPost.id); setSelectedPost(null); fetchRecords(); }} className="text-xs font-bold text-red-400 hover:text-red-300 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-all">削除</button>
+                </div>
+              )}
             </div>
           </div>
         )}
