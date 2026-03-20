@@ -33,6 +33,7 @@ type Qualification = {
   next: string[];
   description: string;
   score?: number;
+  fromOwned?: string[]; // 保有資格からおすすめされた場合、その資格名リスト
 };
 
 // ==================== Questions ====================
@@ -732,7 +733,7 @@ const QUALIFICATIONS: Qualification[] = [
 ];
 
 // ==================== Scoring ====================
-function calculateScores(answers: (AnswerOption | null)[]): Qualification[] {
+function calculateScores(answers: (AnswerOption | null)[], ownedNames: Set<string>): Qualification[] {
   const weights: TagWeights = {};
   for (const answer of answers) {
     if (!answer) continue;
@@ -743,28 +744,43 @@ function calculateScores(answers: (AnswerOption | null)[]): Qualification[] {
 
   const englishPenalty = weights["english_penalty"] || 0;
 
-  const scored = QUALIFICATIONS.map((q) => {
-    let score = 0;
-    for (const tag of q.tags) {
-      const w = weights[tag];
-      if (!w) continue;
-      const multiplier =
-        tag === "entry" || tag === "mid" || tag === "senior"
-          ? 3
-          : tag === "aws" || tag === "gcp" || tag === "azure"
-          ? 3
-          : tag === "security" || tag === "dev" || tag === "network" || tag === "db" || tag === "container"
-          ? 2.5
-          : 1.5;
-      score += w * multiplier;
+  // 保有資格の next から「おすすめ理由」マップを作成
+  const ownedNextMap: Record<string, string[]> = {};
+  for (const q of QUALIFICATIONS) {
+    if (!ownedNames.has(q.name)) continue;
+    for (const nextName of q.next) {
+      if (!ownedNextMap[nextName]) ownedNextMap[nextName] = [];
+      ownedNextMap[nextName].push(q.name);
     }
-    if (englishPenalty > 0 && q.english === "英語必須") {
-      score -= englishPenalty * 2;
-    }
-    return { ...q, score };
-  });
+  }
 
-  return scored.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+  const scored = QUALIFICATIONS
+    .filter((q) => !ownedNames.has(q.name)) // 保有済みを除外
+    .map((q) => {
+      let score = 0;
+      for (const tag of q.tags) {
+        const w = weights[tag];
+        if (!w) continue;
+        const multiplier =
+          tag === "entry" || tag === "mid" || tag === "senior"
+            ? 3
+            : tag === "aws" || tag === "gcp" || tag === "azure"
+            ? 3
+            : tag === "security" || tag === "dev" || tag === "network" || tag === "db" || tag === "container"
+            ? 2.5
+            : 1.5;
+        score += w * multiplier;
+      }
+      if (englishPenalty > 0 && q.english === "英語必須") {
+        score -= englishPenalty * 2;
+      }
+      // 保有資格のnextに含まれる場合はスコアブースト
+      const fromOwned = ownedNextMap[q.name];
+      if (fromOwned) score += 12;
+      return { ...q, score, fromOwned };
+    });
+
+  return scored.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 6);
 }
 
 // ==================== Helper Components ====================
@@ -785,6 +801,7 @@ const RANK_STYLES = [
 function ResultCard({ q, rank }: { q: Qualification; rank: number }) {
   const [expanded, setExpanded] = useState(rank === 0);
   const style = RANK_STYLES[rank];
+  const hasOwnedBoost = q.fromOwned && q.fromOwned.length > 0;
 
   return (
     <div
@@ -801,6 +818,11 @@ function ResultCard({ q, rank }: { q: Qualification; rank: number }) {
             <span className={`text-[10px] font-black tracking-widest px-2 py-0.5 rounded-full border ${rank === 0 ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40" : "bg-white/10 text-white/50 border-white/15"}`}>
               {style.badge}
             </span>
+            {hasOwnedBoost && (
+              <span className="text-[10px] font-black px-2 py-0.5 rounded-full border bg-rose-500/20 text-rose-300 border-rose-500/40">
+                🔗 保有資格からのステップアップ
+              </span>
+            )}
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${LEVEL_COLORS[q.level]}`}>
               {q.level}
             </span>
@@ -835,6 +857,16 @@ function ResultCard({ q, rank }: { q: Qualification; rank: number }) {
             ))}
           </div>
 
+          {/* Owned Boost Reason */}
+          {hasOwnedBoost && (
+            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3">
+              <p className="text-[9px] text-rose-400/70 font-bold tracking-widest uppercase mb-2">🔗 おすすめ理由</p>
+              <p className="text-xs text-rose-200/80 leading-relaxed">
+                {q.fromOwned!.join("・")} を持っているあなたの次のステップとして最適です！
+              </p>
+            </div>
+          )}
+
           {/* Next Step */}
           {q.next.length > 0 && (
             <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl p-3">
@@ -855,16 +887,29 @@ function ResultCard({ q, rank }: { q: Qualification; rank: number }) {
 }
 
 // ==================== Main Component ====================
+// カテゴリ一覧（保有資格選択画面用）
+const CATEGORIES = Array.from(new Set(QUALIFICATIONS.map((q) => q.category)));
+
 export default function QuizPage() {
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<(AnswerOption | null)[]>(Array(QUESTIONS.length).fill(null));
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [phase, setPhase] = useState<"quiz" | "result">("quiz");
+  const [phase, setPhase] = useState<"owned" | "quiz" | "result">("owned");
   const [animating, setAnimating] = useState(false);
+  const [ownedNames, setOwnedNames] = useState<Set<string>>(new Set());
 
   const question = QUESTIONS[currentQ];
   const progress = ((currentQ + (selectedIdx !== null ? 0.5 : 0)) / QUESTIONS.length) * 100;
-  const results = phase === "result" ? calculateScores(answers) : [];
+  const results = phase === "result" ? calculateScores(answers, ownedNames) : [];
+
+  const toggleOwned = (name: string) => {
+    setOwnedNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
 
   const selectAnswer = (idx: number) => {
     if (animating) return;
@@ -893,7 +938,8 @@ export default function QuizPage() {
     setCurrentQ(0);
     setAnswers(Array(QUESTIONS.length).fill(null));
     setSelectedIdx(null);
-    setPhase("quiz");
+    setPhase("owned");
+    setOwnedNames(new Set());
     setAnimating(false);
   };
 
@@ -912,6 +958,11 @@ export default function QuizPage() {
           >
             ← ホームに戻る
           </Link>
+          {phase === "owned" && (
+            <span className="text-[10px] text-indigo-400/50 font-bold tracking-widest uppercase">
+              {ownedNames.size > 0 ? `${ownedNames.size}件選択中` : "保有資格を選択"}
+            </span>
+          )}
           {phase === "quiz" && (
             <span className="text-[10px] text-indigo-400/50 font-bold tracking-widest uppercase">
               {currentQ + 1} / {QUESTIONS.length}
@@ -926,6 +977,69 @@ export default function QuizPage() {
             </button>
           )}
         </div>
+
+        {/* ===== 保有資格選択フェーズ ===== */}
+        {phase === "owned" && (
+          <div>
+            <div className="text-center mb-8">
+              <div className="text-5xl mb-3">🎓</div>
+              <p className="text-[10px] text-indigo-400/50 font-bold tracking-[0.3em] uppercase mb-2">STEP 1 / 2</p>
+              <h1 className="text-2xl font-black text-white">すでに持っている資格は？</h1>
+              <p className="text-indigo-300/60 text-sm mt-1">選択した資格は除外し、次のステップをおすすめします</p>
+            </div>
+
+            <div className="space-y-4 mb-8">
+              {CATEGORIES.map((cat) => {
+                const items = QUALIFICATIONS.filter((q) => q.category === cat);
+                return (
+                  <div key={cat} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
+                    <div className="px-4 py-2.5 bg-white/5 border-b border-white/8">
+                      <p className="text-[10px] font-black text-indigo-300/70 tracking-widest uppercase">{cat}</p>
+                    </div>
+                    <div className="p-3 space-y-1">
+                      {items.map((q) => {
+                        const checked = ownedNames.has(q.name);
+                        return (
+                          <button
+                            key={q.name}
+                            onClick={() => toggleOwned(q.name)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
+                              checked
+                                ? "bg-indigo-500/20 border border-indigo-400/40"
+                                : "bg-white/3 border border-transparent hover:bg-white/8"
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                              checked ? "bg-indigo-500 border-indigo-400" : "border-white/25"
+                            }`}>
+                              {checked && <span className="text-white text-[11px] font-black">✓</span>}
+                            </div>
+                            <span className="text-lg shrink-0">{q.icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-sm font-bold leading-tight ${checked ? "text-white" : "text-indigo-100/75"}`}>
+                                {q.name}
+                              </p>
+                              <p className="text-[10px] text-indigo-400/50 mt-0.5">{q.level} · {q.hours}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => setPhase("quiz")}
+                className="w-full py-4 rounded-2xl font-black text-base bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-500/30 hover:from-indigo-500 hover:to-violet-500 active:scale-[0.98] transition-all"
+              >
+                {ownedNames.size > 0 ? `${ownedNames.size}件選択して診断スタート →` : "持っている資格はない → 診断スタート"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {phase === "quiz" && (
           <>
@@ -1020,7 +1134,9 @@ export default function QuizPage() {
               <div className="text-5xl mb-3">🎊</div>
               <p className="text-[10px] text-indigo-400/50 font-bold tracking-[0.3em] uppercase mb-2">診断結果</p>
               <h2 className="text-2xl font-black text-white mb-1">あなたにおすすめの資格</h2>
-              <p className="text-indigo-300/60 text-sm">回答をもとに {results.length} 件ピックアップしました</p>
+              <p className="text-indigo-300/60 text-sm">
+                {ownedNames.size > 0 ? `保有${ownedNames.size}件を除いて` : "回答をもとに"} {results.length} 件ピックアップしました
+              </p>
             </div>
 
             {/* Result Cards */}
