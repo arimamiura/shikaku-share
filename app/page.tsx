@@ -570,6 +570,13 @@ export default function Page() {
               >
                 <span className="text-lg">✏️</span> 新規投稿
               </button>
+              <a
+                href="/quiz"
+                onClick={() => setMenuOpen(false)}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-violet-600/20 to-indigo-600/20 border border-violet-500/30 text-violet-200 hover:from-violet-600/30 hover:to-indigo-600/30 transition-all text-sm font-bold"
+              >
+                <span className="text-lg">🎯</span> 資格診断
+              </a>
               <div className="pt-4">
                 <p className="text-[9px] text-indigo-500/50 tracking-widest uppercase px-4 mb-2">資格を追加</p>
                 <div className="flex gap-2">
@@ -674,6 +681,21 @@ export default function Page() {
         {/* ===== ホーム：資格カードグリッド ===== */}
         {!isDetailView ? (
           <div>
+            {/* 資格診断バナー */}
+            <a
+              href="/quiz"
+              className="flex items-center justify-between gap-4 mb-6 p-4 rounded-2xl bg-gradient-to-r from-violet-600/25 to-indigo-600/20 border border-violet-500/35 hover:from-violet-600/35 hover:to-indigo-600/30 transition-all group shadow-lg shadow-violet-500/10"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🎯</span>
+                <div>
+                  <p className="text-white font-black text-sm leading-tight">どの資格から始める？</p>
+                  <p className="text-violet-300/70 text-xs mt-0.5">7問に答えてあなたにぴったりの資格を診断！</p>
+                </div>
+              </div>
+              <span className="text-violet-300 font-black text-sm group-hover:translate-x-1 transition-transform whitespace-nowrap">診断する →</span>
+            </a>
+
             {/* セクションタイトル + 資格追加 */}
             <div className="flex items-center gap-3 mb-4">
               <p className="text-[10px] font-bold text-indigo-400/60 tracking-[0.3em] uppercase">資格一覧</p>
