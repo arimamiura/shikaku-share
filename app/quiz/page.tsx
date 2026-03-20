@@ -796,6 +796,7 @@ const RANK_STYLES = [
   { badge: "🥉 3位", border: "border-amber-600/40", glow: "shadow-amber-700/10", bg: "from-amber-700/15 to-orange-800/10" },
   { badge: "4位", border: "border-white/15", glow: "", bg: "from-white/5 to-white/3" },
   { badge: "5位", border: "border-white/10", glow: "", bg: "from-white/3 to-transparent" },
+  { badge: "6位", border: "border-white/8", glow: "", bg: "from-white/2 to-transparent" },
 ];
 
 function ResultCard({ q, rank }: { q: Qualification; rank: number }) {
