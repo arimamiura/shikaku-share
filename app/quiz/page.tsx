@@ -799,7 +799,7 @@ const RANK_STYLES = [
   { badge: "6位", border: "border-white/8", glow: "", bg: "from-white/2 to-transparent" },
 ];
 
-function ResultCard({ q, rank, aiResult }: { q: Qualification; rank: number; aiResult?: AiResult }) {
+function ResultCard({ q, rank }: { q: Qualification; rank: number }) {
   const [expanded, setExpanded] = useState(rank === 0);
   const style = RANK_STYLES[rank];
   const hasOwnedBoost = q.fromOwned && q.fromOwned.length > 0;
@@ -832,9 +832,6 @@ function ResultCard({ q, rank, aiResult }: { q: Qualification; rank: number; aiR
             </span>
           </div>
           <p className="text-white font-black text-base leading-tight">{q.name}</p>
-          {aiResult?.catchcopy && (
-            <p className="text-violet-300 text-xs font-black mt-0.5">「{aiResult.catchcopy}」</p>
-          )}
           <p className="text-indigo-300/70 text-xs mt-1 leading-relaxed">{q.description}</p>
         </div>
         <div className="text-indigo-400/50 text-sm shrink-0 mt-1">
@@ -861,16 +858,8 @@ function ResultCard({ q, rank, aiResult }: { q: Qualification; rank: number; aiR
             ))}
           </div>
 
-          {/* AI Reason */}
-          {aiResult && (
-            <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-3">
-              <p className="text-[9px] text-violet-400/70 font-bold tracking-widest uppercase mb-2">✨ AIのおすすめ理由</p>
-              <p className="text-xs text-violet-100/85 leading-relaxed">{aiResult.reason}</p>
-            </div>
-          )}
-
           {/* Owned Boost Reason */}
-          {!aiResult && hasOwnedBoost && (
+          {hasOwnedBoost && (
             <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-3">
               <p className="text-[9px] text-rose-400/70 font-bold tracking-widest uppercase mb-2">🔗 おすすめ理由</p>
               <p className="text-xs text-rose-200/80 leading-relaxed">
@@ -902,8 +891,6 @@ function ResultCard({ q, rank, aiResult }: { q: Qualification; rank: number; aiR
 // カテゴリ一覧（保有資格選択画面用）
 const CATEGORIES = Array.from(new Set(QUALIFICATIONS.map((q) => q.category)));
 
-type AiResult = { reason: string; catchcopy: string };
-
 export default function QuizPage() {
   const [currentQ, setCurrentQ] = useState(0);
   const [answers, setAnswers] = useState<(AnswerOption | null)[]>(Array(QUESTIONS.length).fill(null));
@@ -911,8 +898,6 @@ export default function QuizPage() {
   const [phase, setPhase] = useState<"owned" | "quiz" | "result">("owned");
   const [animating, setAnimating] = useState(false);
   const [ownedNames, setOwnedNames] = useState<Set<string>>(new Set());
-  const [aiMap, setAiMap] = useState<Record<string, AiResult>>({});
-  const [aiLoading, setAiLoading] = useState(false);
 
   const question = QUESTIONS[currentQ];
   const progress = ((currentQ + (selectedIdx !== null ? 0.5 : 0)) / QUESTIONS.length) * 100;
@@ -932,42 +917,6 @@ export default function QuizPage() {
     setSelectedIdx(idx);
   };
 
-  const fetchAiResults = async (finalAnswers: (AnswerOption | null)[], owned: Set<string>, candidates: Qualification[]) => {
-    setAiLoading(true);
-    try {
-      const res = await fetch("/api/quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          answers: QUESTIONS.map((q, i) => ({
-            question: q.text,
-            answer: finalAnswers[i]?.text ?? "",
-          })),
-          ownedNames: Array.from(owned),
-          candidates: candidates.map((c) => ({
-            name: c.name,
-            level: c.level,
-            category: c.category,
-            description: c.description,
-            fromOwned: c.fromOwned,
-          })),
-        }),
-      });
-      const data = await res.json();
-      if (data.results) {
-        const map: Record<string, AiResult> = {};
-        for (const r of data.results) {
-          map[r.name] = { reason: r.reason, catchcopy: r.catchcopy };
-        }
-        setAiMap(map);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
   const goNext = () => {
     if (selectedIdx === null || animating) return;
     const newAnswers = [...answers];
@@ -977,9 +926,7 @@ export default function QuizPage() {
 
     setTimeout(() => {
       if (currentQ + 1 >= QUESTIONS.length) {
-        const candidates = calculateScores(newAnswers, ownedNames);
         setPhase("result");
-        fetchAiResults(newAnswers, ownedNames, candidates);
       } else {
         setCurrentQ((q) => q + 1);
         setSelectedIdx(null);
@@ -994,8 +941,6 @@ export default function QuizPage() {
     setSelectedIdx(null);
     setPhase("owned");
     setOwnedNames(new Set());
-    setAiMap({});
-    setAiLoading(false);
     setAnimating(false);
   };
 
@@ -1195,18 +1140,10 @@ export default function QuizPage() {
               </p>
             </div>
 
-            {/* AI Loading */}
-            {aiLoading && (
-              <div className="flex items-center gap-3 mb-6 p-4 rounded-2xl bg-violet-500/10 border border-violet-500/20">
-                <div className="w-5 h-5 border-2 border-violet-400 border-t-transparent rounded-full animate-spin shrink-0" />
-                <p className="text-violet-300 text-sm font-bold">AIがあなたに合わせたおすすめ理由を生成中...</p>
-              </div>
-            )}
-
             {/* Result Cards */}
             <div className="space-y-4">
               {results.map((q, i) => (
-                <ResultCard key={q.name} q={q} rank={i} aiResult={aiMap[q.name]} />
+                <ResultCard key={q.name} q={q} rank={i} />
               ))}
             </div>
 
