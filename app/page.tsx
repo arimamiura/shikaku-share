@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Dialog } from "@headlessui/react";
 import { createClient } from "@supabase/supabase-js";
+import { getXpForExam } from "@/lib/gamification";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -202,6 +203,34 @@ export default function Page() {
       alert("保存に失敗しました: " + error.message);
       return;
     }
+
+    // パターン2: 合格投稿時にマイページの保有資格へ自動反映
+    if (result === "合格" && session?.user?.id) {
+      await supabase.from("user_profiles").upsert({
+        user_id: session.user.id,
+        display_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0],
+        email: session.user.email,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+
+      const { data: existing } = await supabase
+        .from("user_qualifications")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .eq("exam_name", nameToSave)
+        .single();
+
+      if (!existing) {
+        await supabase.from("user_qualifications").insert({
+          user_id: session.user.id,
+          exam_name: nameToSave,
+          xp_earned: getXpForExam(nameToSave),
+          obtained_at: examDate || new Date().toISOString().split("T")[0],
+          source: "post",
+        });
+      }
+    }
+
     setMemo("");
     setExamFee(""); setQuestionCount(""); setQuestionLength(""); setExamFormat("");
     setStudyMaterials(""); setStudyHours(""); setEffectiveMethod("");
@@ -571,6 +600,13 @@ export default function Page() {
                 <span className="text-lg">✏️</span> 新規投稿
               </button>
               <a
+                href="/mypage"
+                onClick={() => setMenuOpen(false)}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/30 text-emerald-200 hover:from-emerald-600/30 hover:to-teal-600/30 transition-all text-sm font-bold"
+              >
+                <span className="text-lg">🎖</span> マイページ
+              </a>
+              <a
                 href="/quiz"
                 onClick={() => setMenuOpen(false)}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-violet-600/20 to-indigo-600/20 border border-violet-500/30 text-violet-200 hover:from-violet-600/30 hover:to-indigo-600/30 transition-all text-sm font-bold"
@@ -643,13 +679,23 @@ export default function Page() {
               </div>
             </button>
           </div>
-          <button
-            onClick={() => setSearchOpen(v => !v)}
-            className={classNames(
-              "w-10 h-10 flex items-center justify-center rounded-xl border transition-all text-lg",
-              searchOpen ? "bg-indigo-500/30 border-indigo-400/50 text-indigo-200" : "bg-white/8 border-white/15 text-indigo-300 hover:bg-white/15"
-            )}
-          >🔍</button>
+          <div className="flex items-center gap-2">
+            <a
+              href="/mypage"
+              className="w-10 h-10 flex items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all text-white font-black text-sm"
+              title="マイページ"
+            >
+              {session?.user?.user_metadata?.full_name?.[0]?.toUpperCase() ||
+               session?.user?.email?.[0]?.toUpperCase() || "👤"}
+            </a>
+            <button
+              onClick={() => setSearchOpen(v => !v)}
+              className={classNames(
+                "w-10 h-10 flex items-center justify-center rounded-xl border transition-all text-lg",
+                searchOpen ? "bg-indigo-500/30 border-indigo-400/50 text-indigo-200" : "bg-white/8 border-white/15 text-indigo-300 hover:bg-white/15"
+              )}
+            >🔍</button>
+          </div>
         </div>
 
         {/* 検索バー */}
