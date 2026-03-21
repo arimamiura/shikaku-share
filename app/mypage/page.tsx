@@ -24,8 +24,10 @@ type UserQual = {
 type RankUser = {
   user_id: string;
   display_name: string;
+  avatar: string;
   total_xp: number;
   qual_count: number;
+  quals: { exam_name: string; xp_earned: number; obtained_at: string; source: string }[];
 };
 
 const ALL_QUAL_NAMES = Object.keys(XP_MAP).sort((a, b) => a.localeCompare(b, "ja"));
@@ -53,6 +55,7 @@ export default function MyPage() {
   const [showDropdown, setShowDropdown] = useState(false);
   const [levelUpInfo, setLevelUpInfo] = useState<LevelInfo | null>(null);
   const [avatar, setAvatar] = useState("👤");
+  const [selectedRankUser, setSelectedRankUser] = useState<RankUser | null>(null);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [customEmoji, setCustomEmoji] = useState("");
 
@@ -115,22 +118,25 @@ export default function MyPage() {
 
   const fetchRanking = async () => {
     const [{ data: profiles }, { data: allQuals }] = await Promise.all([
-      supabase.from("user_profiles").select("user_id, display_name, email"),
-      supabase.from("user_qualifications").select("user_id, xp_earned"),
+      supabase.from("user_profiles").select("user_id, display_name, email, avatar"),
+      supabase.from("user_qualifications").select("user_id, exam_name, xp_earned, obtained_at, source").order("created_at", { ascending: false }),
     ]);
     if (profiles && allQuals) {
       const xpMap: Record<string, number> = {};
-      const cntMap: Record<string, number> = {};
+      const qualMap: Record<string, typeof allQuals> = {};
       for (const q of allQuals) {
         xpMap[q.user_id] = (xpMap[q.user_id] || 0) + q.xp_earned;
-        cntMap[q.user_id] = (cntMap[q.user_id] || 0) + 1;
+        if (!qualMap[q.user_id]) qualMap[q.user_id] = [];
+        qualMap[q.user_id].push(q);
       }
       const ranked = profiles
         .map((p) => ({
           user_id: p.user_id,
           display_name: p.display_name || p.email?.split("@")[0] || "???",
+          avatar: p.avatar || "👤",
           total_xp: xpMap[p.user_id] || 0,
-          qual_count: cntMap[p.user_id] || 0,
+          qual_count: (qualMap[p.user_id] || []).length,
+          quals: qualMap[p.user_id] || [],
         }))
         .sort((a, b) => b.total_xp - a.total_xp);
       setRankUsers(ranked);
@@ -192,6 +198,75 @@ export default function MyPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 relative">
       <div className="fixed top-[-10%] left-[-10%] w-[400px] h-[400px] bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
       <div className="fixed bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-violet-600/15 rounded-full blur-3xl pointer-events-none" />
+
+      {/* User Detail Modal */}
+      {selectedRankUser && (() => {
+        const u = selectedRankUser;
+        const uLevel = getLevelInfo(u.total_xp);
+        const isMe = u.user_id === session.user.id;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+            onClick={() => setSelectedRankUser(null)}
+          >
+            <div
+              className="bg-slate-900 border border-white/15 rounded-3xl w-full max-w-sm shadow-2xl max-h-[80vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className={`bg-gradient-to-br ${uLevel.current.color} p-0.5 rounded-3xl`}>
+                <div className="bg-slate-900/95 rounded-[22px] px-5 py-4 flex items-center gap-3">
+                  <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${uLevel.current.color} flex items-center justify-center text-2xl shrink-0`}>
+                    {u.avatar}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-white font-black text-base truncate">{u.display_name}</p>
+                      {isMe && <span className="text-[10px] bg-indigo-500/30 text-indigo-300 px-1.5 py-0.5 rounded-full font-bold shrink-0">YOU</span>}
+                    </div>
+                    <p className="text-indigo-300/70 text-xs">{uLevel.current.icon} Lv.{uLevel.current.level} {uLevel.current.title}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-white font-black text-lg">{u.total_xp.toLocaleString()}</p>
+                    <p className="text-indigo-400/50 text-[10px]">XP</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Qual List */}
+              <div className="flex-1 overflow-y-auto p-4">
+                <p className="text-[10px] text-indigo-400/50 font-bold tracking-widest uppercase mb-3">
+                  保有資格 {u.qual_count}件
+                </p>
+                {u.quals.length === 0 ? (
+                  <p className="text-indigo-400/40 text-sm text-center py-8">まだ資格が登録されていません</p>
+                ) : (
+                  <div className="space-y-2">
+                    {u.quals.map((q, i) => (
+                      <div key={i} className="flex items-center gap-3 bg-white/5 border border-white/8 rounded-xl px-3 py-2.5">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-bold text-sm leading-tight truncate">{q.exam_name}</p>
+                          <p className="text-indigo-400/50 text-[10px] mt-0.5">{q.obtained_at}</p>
+                        </div>
+                        <span className="text-indigo-300 font-black text-xs shrink-0">+{q.xp_earned} XP</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 border-t border-white/8">
+                <button
+                  onClick={() => setSelectedRankUser(null)}
+                  className="w-full py-2.5 rounded-xl font-bold text-sm bg-white/5 border border-white/10 text-indigo-300 hover:bg-white/10 transition-all"
+                >
+                  閉じる
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Avatar Picker Modal */}
       {showAvatarPicker && (
@@ -537,14 +612,15 @@ export default function MyPage() {
                   const medal = MEDAL[idx];
                   const uLevel = getLevelInfo(user.total_xp);
                   return (
-                    <div
+                    <button
                       key={user.user_id}
-                      className={`flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all ${
+                      onClick={() => setSelectedRankUser(user)}
+                      className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3 border transition-all text-left hover:scale-[1.01] active:scale-[0.99] ${
                         isMe
                           ? "bg-gradient-to-r from-indigo-600/20 to-violet-600/15 border-indigo-500/40 shadow-lg shadow-indigo-500/10"
                           : idx < 3
-                          ? "bg-white/8 border-white/15"
-                          : "bg-white/4 border-white/8"
+                          ? "bg-white/8 border-white/15 hover:bg-white/12"
+                          : "bg-white/4 border-white/8 hover:bg-white/8"
                       }`}
                     >
                       <div className="w-8 text-center shrink-0">
@@ -553,8 +629,8 @@ export default function MyPage() {
                           : <span className="text-indigo-400/50 font-black text-sm">{idx + 1}</span>
                         }
                       </div>
-                      <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${uLevel.current.color} flex items-center justify-center text-lg shrink-0`}>
-                        {uLevel.current.icon}
+                      <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${uLevel.current.color} flex items-center justify-center text-xl shrink-0`}>
+                        {user.avatar}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -566,7 +642,7 @@ export default function MyPage() {
                           )}
                         </div>
                         <p className="text-indigo-400/50 text-[10px]">
-                          Lv.{uLevel.current.level} {uLevel.current.title} · {user.qual_count}資格
+                          {uLevel.current.icon} Lv.{uLevel.current.level} · {user.qual_count}資格
                         </p>
                       </div>
                       <div className="text-right shrink-0">
@@ -579,7 +655,7 @@ export default function MyPage() {
                         </p>
                         <p className="text-indigo-400/40 text-[10px]">XP</p>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
