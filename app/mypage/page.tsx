@@ -31,6 +31,14 @@ type RankUser = {
 const ALL_QUAL_NAMES = Object.keys(XP_MAP).sort((a, b) => a.localeCompare(b, "ja"));
 const MEDAL: Record<number, string> = { 0: "🥇", 1: "🥈", 2: "🥉" };
 
+const PRESET_AVATARS = [
+  "👨‍💻", "👩‍💻", "🧑‍💻", "👨‍🔬", "👩‍🔬", "🧑‍🎓",
+  "🦊", "🐼", "🦁", "🐯", "🐺", "🐸",
+  "🤖", "👾", "🎮", "🚀", "⚡", "🔥",
+  "🌟", "💎", "🏆", "🎯", "🐧", "🦅",
+  "🐉", "🦄", "🎨", "🎸", "🏄", "🧗",
+];
+
 export default function MyPage() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +52,9 @@ export default function MyPage() {
   const [adding, setAdding] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [levelUpInfo, setLevelUpInfo] = useState<LevelInfo | null>(null);
+  const [avatar, setAvatar] = useState("👤");
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [customEmoji, setCustomEmoji] = useState("");
 
   const totalXp = quals.reduce((sum, q) => sum + q.xp_earned, 0);
   const levelInfo = getLevelInfo(totalXp);
@@ -70,12 +81,27 @@ export default function MyPage() {
   }, [tab]);
 
   const upsertProfile = async (session: any) => {
-    await supabase.from("user_profiles").upsert({
-      user_id: session.user.id,
-      display_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0],
-      email: session.user.email,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" });
+    const { data } = await supabase
+      .from("user_profiles")
+      .upsert({
+        user_id: session.user.id,
+        display_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0],
+        email: session.user.email,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" })
+      .select("avatar")
+      .single();
+    if (data?.avatar) setAvatar(data.avatar);
+  };
+
+  const saveAvatar = async (emoji: string) => {
+    if (!session) return;
+    setAvatar(emoji);
+    setShowAvatarPicker(false);
+    setCustomEmoji("");
+    await supabase.from("user_profiles")
+      .update({ avatar: emoji })
+      .eq("user_id", session.user.id);
   };
 
   const fetchQuals = async (userId: string) => {
@@ -167,6 +193,65 @@ export default function MyPage() {
       <div className="fixed top-[-10%] left-[-10%] w-[400px] h-[400px] bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
       <div className="fixed bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-violet-600/15 rounded-full blur-3xl pointer-events-none" />
 
+      {/* Avatar Picker Modal */}
+      {showAvatarPicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowAvatarPicker(false)}
+        >
+          <div
+            className="bg-slate-900 border border-white/15 rounded-3xl p-6 w-full max-w-sm shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-white font-black text-base">アバターを選択</p>
+              <button onClick={() => setShowAvatarPicker(false)} className="text-indigo-400/60 hover:text-white transition-colors text-lg">✕</button>
+            </div>
+
+            {/* Preset Grid */}
+            <p className="text-[10px] text-indigo-400/50 font-bold tracking-widest uppercase mb-2">プリセット</p>
+            <div className="grid grid-cols-6 gap-2 mb-4">
+              {PRESET_AVATARS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => saveAvatar(emoji)}
+                  className={`w-full aspect-square rounded-xl text-2xl flex items-center justify-center transition-all hover:scale-110 active:scale-95 ${
+                    avatar === emoji
+                      ? "bg-indigo-500/30 border-2 border-indigo-400/60"
+                      : "bg-white/5 hover:bg-white/15 border border-white/10"
+                  }`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Emoji Input */}
+            <p className="text-[10px] text-indigo-400/50 font-bold tracking-widest uppercase mb-2">好きな絵文字を入力</p>
+            <div className="flex gap-2">
+              <input
+                className="bg-white/8 border border-white/15 flex-1 px-3 py-2.5 rounded-xl text-white text-xl text-center outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                placeholder="😊"
+                value={customEmoji}
+                onChange={(e) => setCustomEmoji(e.target.value)}
+                maxLength={4}
+              />
+              <button
+                onClick={() => customEmoji && saveAvatar(customEmoji)}
+                disabled={!customEmoji}
+                className={`px-4 py-2.5 rounded-xl font-black text-sm transition-all ${
+                  customEmoji
+                    ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white hover:from-indigo-500 hover:to-violet-500"
+                    : "bg-white/5 text-white/20 cursor-not-allowed"
+                }`}
+              >
+                設定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Level Up Modal */}
       {levelUpInfo && (
         <div
@@ -206,9 +291,15 @@ export default function MyPage() {
         <div className={`bg-gradient-to-br ${levelInfo.current.color} p-0.5 rounded-3xl mb-6 shadow-2xl`}>
           <div className="bg-slate-900/92 backdrop-blur-xl rounded-[22px] p-6">
             <div className="flex items-center gap-4 mb-5">
-              <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${levelInfo.current.color} flex items-center justify-center text-3xl shrink-0 shadow-lg`}>
-                {levelInfo.current.icon}
-              </div>
+              {/* Avatar Button */}
+              <button
+                onClick={() => setShowAvatarPicker(true)}
+                className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${levelInfo.current.color} flex items-center justify-center text-3xl shrink-0 shadow-lg hover:scale-105 transition-transform relative group`}
+                title="アバターを変更"
+              >
+                {avatar}
+                <span className="absolute -bottom-1 -right-1 text-[10px] bg-slate-800 border border-white/20 rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+              </button>
               <div className="flex-1 min-w-0">
                 <p className="text-white font-black text-lg leading-tight truncate">
                   {session.user.user_metadata?.full_name || session.user.email?.split("@")[0]}
@@ -216,7 +307,7 @@ export default function MyPage() {
                 <p className="text-indigo-400/60 text-xs truncate">{session.user.email}</p>
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                   <span className={`text-xs font-black px-2.5 py-0.5 rounded-full bg-gradient-to-r ${levelInfo.current.color} text-white shadow`}>
-                    Lv.{levelInfo.current.level}
+                    {levelInfo.current.icon} Lv.{levelInfo.current.level}
                   </span>
                   <span className="text-indigo-200/80 text-xs font-bold">{levelInfo.current.title}</span>
                 </div>

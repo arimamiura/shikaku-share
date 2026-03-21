@@ -55,6 +55,24 @@ export const XP_MAP: Record<string, number> = {
   "CKA（Certified Kubernetes Administrator）": 500,
   "CKAD（Certified Kubernetes Application Developer）": 500,
   "CKS（Certified Kubernetes Security Specialist）": 500,
+  // AWS 追加分
+  "AWS Certified AI Practitioner": 100,
+  "AWS Data Engineer Associate": 300,
+  "AWS Machine Learning Engineer Associate": 300,
+  "AWS DevOps Engineer Professional": 500,
+  "AWS Advanced Networking Specialty": 500,
+  "AWS Security Specialty": 500,
+  "AWS Machine Learning Specialty": 500,
+  "AWS Database Specialty": 500,
+  "AWS Data Analytics Specialty": 500,
+  "AWS SAP on AWS Specialty": 500,
+  // JSTQB
+  "JSTQB Foundation Level（FL）": 100,
+  "JSTQB FL Agile Tester（FL-AT）": 200,
+  "JSTQB FL Model-Based Tester（FL-MBT）": 200,
+  "JSTQB Advanced Level Test Manager（AL-TM）": 500,
+  "JSTQB Advanced Level Test Analyst（AL-TA）": 500,
+  "JSTQB Advanced Level Technical Test Analyst（AL-TTA）": 500,
 };
 
 // ==================== Level System ====================
@@ -102,8 +120,8 @@ export const ROADMAP: Record<string, string[]> = {
   "基本情報技術者試験（FE）": ["応用情報技術者試験（AP）", "AWS Cloud Practitioner"],
   "応用情報技術者試験（AP）": ["情報処理安全確保支援士（RISS）", "ネットワークスペシャリスト", "データベーススペシャリスト"],
   "AWS Cloud Practitioner": ["AWS Solutions Architect Associate（SAA）", "AWS Developer Associate（DVA）"],
-  "AWS Solutions Architect Associate（SAA）": ["AWS Solutions Architect Professional（SAP）", "AWS SysOps Administrator Associate"],
-  "AWS Developer Associate（DVA）": ["AWS Solutions Architect Professional（SAP）"],
+  "AWS Solutions Architect Associate（SAA）": ["AWS Solutions Architect Professional（SAP）", "AWS SysOps Administrator Associate", "AWS Advanced Networking Specialty"],
+  "AWS Developer Associate（DVA）": ["AWS Solutions Architect Professional（SAP）", "AWS DevOps Engineer Professional"],
   "Microsoft Azure Fundamentals（AZ-900）": ["Microsoft Azure Administrator（AZ-104）"],
   "Microsoft Azure Administrator（AZ-104）": ["Microsoft Azure Solutions Architect（AZ-305）"],
   "CC（Certified in Cybersecurity）": ["CompTIA Security+", "SSCP（Systems Security Certified Practitioner）"],
@@ -120,6 +138,14 @@ export const ROADMAP: Record<string, string[]> = {
   "CKAD（Certified Kubernetes Application Developer）": ["CKS（Certified Kubernetes Security Specialist）"],
   "LPIC-1 / LinuC Level 1": ["HashiCorp Terraform Associate", "Docker Certified Associate（DCA）"],
   "情報セキュリティマネジメント試験": ["情報処理安全確保支援士（RISS）", "CompTIA Security+"],
+  // AWS 追加分
+  "AWS Certified AI Practitioner": ["AWS Machine Learning Specialty", "AWS Machine Learning Engineer Associate"],
+  "AWS Data Engineer Associate": ["AWS Data Analytics Specialty", "AWS Database Specialty"],
+  "AWS Machine Learning Engineer Associate": ["AWS Machine Learning Specialty"],
+  // JSTQB
+  "JSTQB Foundation Level（FL）": ["JSTQB FL Agile Tester（FL-AT）", "JSTQB FL Model-Based Tester（FL-MBT）", "JSTQB Advanced Level Test Manager（AL-TM）", "JSTQB Advanced Level Test Analyst（AL-TA）", "JSTQB Advanced Level Technical Test Analyst（AL-TTA）"],
+  "JSTQB FL Agile Tester（FL-AT）": ["JSTQB Advanced Level Test Analyst（AL-TA）"],
+  "JSTQB FL Model-Based Tester（FL-MBT）": ["JSTQB Advanced Level Technical Test Analyst（AL-TTA）"],
 };
 
 export function getRecommendations(ownedExams: string[]): { from: string; next: string; xp: number }[] {
