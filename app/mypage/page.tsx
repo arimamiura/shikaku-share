@@ -58,6 +58,8 @@ export default function MyPage() {
   const [selectedRankUser, setSelectedRankUser] = useState<RankUser | null>(null);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [customEmoji, setCustomEmoji] = useState("");
+  const [notifications, setNotifications] = useState<{ postId: number; examName: string; commenterName: string; text: string; created_at: string }[]>([]);
+  const [lastNotifSeen, setLastNotifSeen] = useState<string | null>(null);
 
   const totalXp = quals.reduce((sum, q) => sum + q.xp_earned, 0);
   const levelInfo = getLevelInfo(totalXp);
@@ -74,6 +76,7 @@ export default function MyPage() {
       if (session) {
         upsertProfile(session);
         fetchQuals(session.user.id);
+        fetchNotifications(session.user.id);
       }
       setLoading(false);
     });
@@ -174,6 +177,38 @@ export default function MyPage() {
     if (!confirm("この資格の記録を削除しますか？")) return;
     await supabase.from("user_qualifications").delete().eq("id", id);
     await fetchQuals(session.user.id);
+  };
+
+  const fetchNotifications = async (userId: string) => {
+    const [{ data: profile }, { data: myPosts }] = await Promise.all([
+      supabase.from("user_profiles").select("last_notif_seen").eq("user_id", userId).single(),
+      supabase.from("shikaku_memos").select("id, exam_name, comments").eq("user_id", userId),
+    ]);
+    const seen = profile?.last_notif_seen ?? null;
+    setLastNotifSeen(seen);
+    if (!myPosts) return;
+    const notifs: { postId: number; examName: string; commenterName: string; text: string; created_at: string }[] = [];
+    for (const post of myPosts) {
+      for (const c of (post.comments || [])) {
+        if (!seen || new Date(c.created_at) > new Date(seen)) {
+          notifs.push({ postId: post.id, examName: post.exam_name, commenterName: c.user_name, text: c.text, created_at: c.created_at });
+        }
+      }
+    }
+    notifs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    setNotifications(notifs);
+  };
+
+  const markNotifsRead = async (userId: string) => {
+    if (notifications.length === 0) return;
+    const now = new Date().toISOString();
+    setLastNotifSeen(now);
+    setNotifications([]);
+    await supabase.from("user_profiles").upsert({
+      user_id: userId,
+      last_notif_seen: now,
+      updated_at: now,
+    }, { onConflict: "user_id" });
   };
 
   if (loading) return (
@@ -423,6 +458,44 @@ export default function MyPage() {
             )}
           </div>
         </div>
+
+        {/* Notifications */}
+        {notifications.length > 0 && (
+          <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl overflow-hidden mb-6">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-rose-500/20">
+              <p className="text-xs font-black text-rose-300 tracking-widest uppercase">🔔 新着コメント ({notifications.length})</p>
+              <button
+                onClick={() => session && markNotifsRead(session.user.id)}
+                className="text-[10px] text-rose-400/60 hover:text-rose-300 bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg transition-all font-bold"
+              >
+                すべて既読
+              </button>
+            </div>
+            <div className="divide-y divide-white/5">
+              {notifications.map((n, i) => (
+                <a
+                  key={i}
+                  href={`/?post=${n.postId}`}
+                  onClick={() => session && markNotifsRead(session.user.id)}
+                  className="flex items-start gap-3 px-5 py-3.5 hover:bg-white/5 transition-all block"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-base shrink-0 mt-0.5">💬</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-xs font-bold leading-snug">
+                      <span className="text-rose-300">{n.commenterName}</span>
+                      <span className="text-white/50"> さんが </span>
+                      <span className="text-indigo-300">「{n.examName}」</span>
+                      <span className="text-white/50"> にコメントしました</span>
+                    </p>
+                    <p className="text-white/60 text-xs mt-0.5 truncate">"{n.text}"</p>
+                    <p className="text-white/30 text-[10px] mt-0.5">{new Date(n.created_at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                  </div>
+                  <span className="text-indigo-400/50 text-xs shrink-0 mt-1">→</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 bg-white/5 border border-white/10 rounded-2xl p-1.5">

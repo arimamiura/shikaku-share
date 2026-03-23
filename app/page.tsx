@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@headlessui/react";
 import { createClient } from "@supabase/supabase-js";
-import { getXpForExam } from "@/lib/gamification";
+import { XP_MAP, getXpForExam } from "@/lib/gamification";
+
+const ALL_QUAL_NAMES = Object.keys(XP_MAP).sort((a, b) => a.localeCompare(b, "ja"));
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,12 +43,14 @@ export default function Page() {
   const [records, setRecords] = useState<any[]>([]);
   const [examMaster, setExamMaster] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingMemo, setEditingMemo] = useState("");
+  const [editingFields, setEditingFields] = useState<Record<string, any> | null>(null);
 
   // コメント用
   const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
   const [commentName, setCommentName] = useState("");
   const [commentText, setCommentText] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState("");
 
   // 投稿詳細ページ
   const [selectedPost, setSelectedPost] = useState<any | null>(null);
@@ -55,6 +59,7 @@ export default function Page() {
       入力用
   ===================== */
   const [userName, setUserName] = useState("");
+  const [nameMode, setNameMode] = useState<"myname" | "anonymous">("myname");
   const [examName, setExamName] = useState("");
   const [newExamName, setNewExamName] = useState("");
   const [memo, setMemo] = useState("");
@@ -80,9 +85,27 @@ export default function Page() {
   const [passingTips, setPassingTips] = useState("");
   const [adviceForNext, setAdviceForNext] = useState("");
   const [addExamInput, setAddExamInput] = useState("");
+  const [showAddDropdown, setShowAddDropdown] = useState(false);
   const [postFormOpen, setPostFormOpen] = useState(false);
+
+  const filteredAddQuals = ALL_QUAL_NAMES.filter((n) =>
+    addExamInput.trim() !== "" &&
+    (n.toLowerCase().includes(addExamInput.toLowerCase()) || n.includes(addExamInput))
+  );
   const [editingExam, setEditingExam] = useState<string | null>(null);
   const [editingExamName, setEditingExamName] = useState("");
+
+  // 取得速報
+  const [celebFeed, setCelebFeed] = useState<any[]>([]);
+  const celebScrollRef = useRef<HTMLDivElement>(null);
+  // ソート
+  const [sortOrder, setSortOrder] = useState<"newest" | "popular" | "difficulty">("newest");
+  // ブックマーク
+  const [bookmarks, setBookmarks] = useState<number[]>([]);
+  const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
+  // コメント通知
+  const [notifCount, setNotifCount] = useState(0);
+  const [lastNotifSeen, setLastNotifSeen] = useState<string | null>(null);
 
   const EXAM_MASTER_KEY = "shikaku_exam_master";
 
@@ -144,6 +167,11 @@ export default function Page() {
         const updated = data.find(r => r.id === selectedRecord.id);
         if (updated) setSelectedRecord(updated);
       }
+      setSelectedPost((prev: any) => {
+        if (!prev) return prev;
+        const updated = data.find((r: any) => r.id === prev.id);
+        return updated ?? prev;
+      });
     }
   };
 
@@ -175,15 +203,117 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    if (session) fetchRecords();
+    if (!session) return;
+    fetchRecords();
+    fetchCelebFeed();
+    // ブックマークと通知を取得
+    (async () => {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("bookmarks, last_notif_seen")
+        .eq("user_id", session.user.id)
+        .single();
+      if (profile) {
+        setBookmarks(profile.bookmarks || []);
+        setLastNotifSeen(profile.last_notif_seen);
+      }
+    })();
   }, [session]);
+
+  // URLパラメータで指定された投稿を自動オープン
+  useEffect(() => {
+    if (records.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const postId = params.get("post");
+    if (postId) {
+      const found = records.find((r: any) => r.id === Number(postId));
+      if (found) setSelectedPost(found);
+    }
+  }, [records]);
+
+  // コメント通知数を計算
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const myPosts = records.filter((r: any) => r.user_id === session.user.id);
+    let count = 0;
+    for (const post of myPosts) {
+      for (const c of (post.comments || [])) {
+        if (!lastNotifSeen || new Date(c.created_at) > new Date(lastNotifSeen)) count++;
+      }
+    }
+    setNotifCount(count);
+  }, [records, lastNotifSeen, session]);
+
+  const fetchCelebFeed = async () => {
+    const [{ data: quals }, { data: posts }] = await Promise.all([
+      supabase
+        .from("user_qualifications")
+        .select("id, exam_name, xp_earned, obtained_at, created_at, reactions, user_profiles(display_name, avatar)")
+        .order("created_at", { ascending: false })
+        .limit(20),
+      supabase
+        .from("shikaku_memos")
+        .select("id, exam_name, user_name, result, difficulty, created_at, reactions, user_id")
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
+    const qualItems = (quals || []).map((q: any) => ({ ...q, _type: "qual", _feedId: `qual_${q.id}` }));
+    const postItems = (posts || []).map((p: any) => ({ ...p, _type: "post", _feedId: `post_${p.id}` }));
+    const merged = [...qualItems, ...postItems].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    ).slice(0, 25);
+    setCelebFeed(merged);
+  };
+
+  const handleCelebReaction = async (feedId: string, emoji: string) => {
+    const item = celebFeed.find((c: any) => c._feedId === feedId);
+    if (!item) return;
+    const reactions = { ...(item.reactions || {}) };
+    reactions[emoji] = (reactions[emoji] || 0) + 1;
+    if (item._type === "qual") {
+      await supabase.from("user_qualifications").update({ reactions }).eq("id", item.id);
+    } else {
+      await supabase.from("shikaku_memos").update({ reactions }).eq("id", item.id);
+    }
+    setCelebFeed((prev: any[]) => prev.map((c: any) => c._feedId === feedId ? { ...c, reactions } : c));
+  };
+
+  const toggleBookmark = async (postId: number) => {
+    if (!session?.user?.id) return;
+    const updated = bookmarks.includes(postId)
+      ? bookmarks.filter(id => id !== postId)
+      : [...bookmarks, postId];
+    setBookmarks(updated);
+    await supabase.from("user_profiles").upsert({
+      user_id: session.user.id,
+      bookmarks: updated,
+      display_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0],
+      email: session.user.email,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+  };
+
+  const markNotifsRead = async () => {
+    if (!session?.user?.id) return;
+    const now = new Date().toISOString();
+    setLastNotifSeen(now);
+    setNotifCount(0);
+    await supabase.from("user_profiles").upsert({
+      user_id: session.user.id,
+      last_notif_seen: now,
+      display_name: session.user.user_metadata?.full_name || session.user.email?.split("@")[0],
+      email: session.user.email,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+  };
 
   /* =====================
       保存・アクション
   ===================== */
   const saveRecord = async () => {
     const nameToSave = examName || selectedExam || "";
-    if (!userName || !nameToSave || !memo) {
+    const displayName = nameMode === "anonymous" ? "匿名" : userName;
+    if ((!userName && nameMode === "myname") || !nameToSave || !memo) {
       alert("必須項目（★）を入力してください");
       return;
     }
@@ -193,7 +323,7 @@ export default function Page() {
       frequentTopics, challengePoints, passingTips, adviceForNext,
     });
     const { error } = await supabase.from("shikaku_memos").insert([{
-      user_name: userName, exam_name: nameToSave, memo,
+      user_name: displayName, exam_name: nameToSave, memo,
       exam_date: examDate || null, result, score,
       study_period: studyPeriod, study_time: studyTime,
       study_method: studyMethod, difficulty, details: detailsJson,
@@ -237,6 +367,7 @@ export default function Page() {
     setFrequentTopics(""); setChallengePoints(""); setPassingTips(""); setAdviceForNext("");
     setSelectedExam(nameToSave);
     fetchRecords();
+    fetchCelebFeed();
   };
 
   const handleReaction = async (recordId: number, emoji: string) => {
@@ -263,6 +394,22 @@ export default function Page() {
     fetchRecords();
   };
 
+  const deleteComment = async (post: any, commentId: number, setter: (fn: (prev: any) => any) => void) => {
+    const updated = (post.comments || []).filter((c: any) => c.id !== commentId);
+    await supabase.from("shikaku_memos").update({ comments: updated }).eq("id", post.id);
+    setter((prev: any) => ({ ...prev, comments: updated }));
+    fetchRecords();
+  };
+
+  const saveCommentEdit = async (post: any, commentId: number, newText: string, setter: (fn: (prev: any) => any) => void) => {
+    const updated = (post.comments || []).map((c: any) => c.id === commentId ? { ...c, text: newText } : c);
+    await supabase.from("shikaku_memos").update({ comments: updated }).eq("id", post.id);
+    setter((prev: any) => ({ ...prev, comments: updated }));
+    setEditingCommentId(null);
+    setEditingCommentText("");
+    fetchRecords();
+  };
+
   const deleteRecord = async (id: number) => {
     if (!confirm("投稿を削除しますか？")) return;
     await supabase.from("shikaku_memos").delete().eq("id", id);
@@ -270,9 +417,28 @@ export default function Page() {
   };
 
   const saveEdit = async (id: number) => {
-    await supabase.from("shikaku_memos").update({ memo: editingMemo }).eq("id", id);
+    if (!editingFields) return;
+    const detailsJson = JSON.stringify({
+      examFee: editingFields.examFee,
+      questionCount: editingFields.questionCount,
+      questionLength: editingFields.questionLength,
+      examFormat: editingFields.examFormat,
+      studyMaterials: editingFields.studyMaterials,
+      studyHours: editingFields.studyHours,
+      effectiveMethod: editingFields.effectiveMethod,
+      frequentTopics: editingFields.frequentTopics,
+      challengePoints: editingFields.challengePoints,
+      passingTips: editingFields.passingTips,
+      adviceForNext: editingFields.adviceForNext,
+    });
+    await supabase.from("shikaku_memos").update({
+      user_name: editingFields.user_name,
+      memo: editingFields.memo,
+      difficulty: editingFields.difficulty,
+      details: detailsJson,
+    }).eq("id", id);
     setEditingId(null);
-    setEditingMemo("");
+    setEditingFields(null);
     fetchRecords();
   };
 
@@ -364,6 +530,23 @@ export default function Page() {
     return true;
   });
 
+  // ソート＋ブックマークフィルター適用
+  const sortedGroupedRecords = [...groupedRecords]
+    .filter(g => g.items.length > 0)
+    .filter(g => !showBookmarksOnly || g.items.some((r: any) => bookmarks.includes(r.id)))
+    .sort((a, b) => {
+      if (sortOrder === "popular") {
+        const totalReactions = (g: any) => g.items.reduce((sum: number, r: any) => sum + (Object.values(r.reactions || {}) as number[]).reduce((s: number, v: number) => s + v, 0), 0);
+        return totalReactions(b) - totalReactions(a);
+      }
+      if (sortOrder === "difficulty") {
+        const avgDiff = (g: any) => g.items.reduce((s: number, r: any) => s + (r.difficulty || 0), 0) / (g.items.length || 1);
+        return avgDiff(b) - avgDiff(a);
+      }
+      // newest: default (already sorted by created_at desc)
+      return new Date(b.items[0]?.created_at || 0).getTime() - new Date(a.items[0]?.created_at || 0).getTime();
+    });
+
   const isDetailView = !!(selectedExam || searchQuery);
 
   // ===== 投稿詳細ページ（早期return） =====
@@ -421,70 +604,229 @@ export default function Page() {
             <span className="text-white text-xs font-bold">{selectedPost.user_name}</span>
           </div>
 
-          {/* ヘッダー */}
-          <div className="bg-white/8 border border-white/15 rounded-2xl p-6 mb-4 shadow-xl">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿者</p>
-                <p className="text-white font-black text-lg">{selectedPost.user_name}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿日時</p>
-                <p className="text-indigo-300/70 text-xs">{formatDateTime(selectedPost.created_at)}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 px-3 py-1 rounded-full text-xs font-bold">📋 {selectedPost.exam_name}</span>
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] text-indigo-400/50 uppercase tracking-widest">難易度</span>
-                <span className="text-yellow-400 text-sm">{"★".repeat(selectedPost.difficulty)}<span className="text-white/15">{"★".repeat(5 - selectedPost.difficulty)}</span></span>
-              </div>
-            </div>
-          </div>
+          {editingId === selectedPost.id && editingFields ? (
+            /* ===== 編集フォーム ===== */
+            <div className="bg-white/8 border border-indigo-400/30 rounded-2xl p-5 mb-4 shadow-xl space-y-4">
+              <p className="text-[10px] font-black text-indigo-300 tracking-widest uppercase">✏️ 投稿を編集</p>
 
-          {/* 一言コメント */}
-          <div className="bg-white/8 border border-indigo-400/20 rounded-2xl p-5 mb-4 shadow-xl">
-            <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
-              <span className="h-px bg-indigo-500/30 flex-1"></span>一言コメント<span className="h-px bg-indigo-500/30 flex-1"></span>
-            </p>
-            {editingId === selectedPost.id ? (
-              <div className="space-y-2">
-                <textarea
-                  className="bg-white/8 border border-white/15 p-2 w-full rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-                  value={editingMemo}
-                  onChange={e => setEditingMemo(e.target.value)}
-                  rows={4}
+              {/* 投稿者名 */}
+              <div>
+                <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">投稿者名</label>
+                <input
+                  className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                  value={editingFields.user_name}
+                  onChange={e => setEditingFields(prev => prev ? {...prev, user_name: e.target.value} : prev)}
                 />
-                <div className="flex gap-2">
-                  <button onClick={async () => { await saveEdit(selectedPost.id); setSelectedPost((prev: any) => ({ ...prev, memo: editingMemo })); }} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
-                  <button onClick={() => setEditingId(null)} className="bg-white/15 text-white/70 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
+              </div>
+
+              {/* 一言コメント */}
+              <div>
+                <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">一言コメント ★</label>
+                <textarea
+                  className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none"
+                  rows={3}
+                  value={editingFields.memo}
+                  onChange={e => setEditingFields(prev => prev ? {...prev, memo: e.target.value} : prev)}
+                />
+              </div>
+
+              {/* 難易度 */}
+              <div>
+                <label className="block text-[10px] text-indigo-400/70 font-bold mb-1.5">難易度</label>
+                <div className="flex gap-1">
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} onClick={() => setEditingFields(prev => prev ? {...prev, difficulty: n} : prev)} className={`text-2xl transition-transform hover:scale-110 ${n <= editingFields.difficulty ? "text-yellow-400" : "text-white/15"}`}>★</button>
+                  ))}
                 </div>
               </div>
-            ) : (
-              <p className="text-indigo-100/90 text-sm leading-relaxed whitespace-pre-wrap">{selectedPost.memo}</p>
-            )}
-          </div>
 
-          {/* 詳細セクション */}
-          {detailSections.map(section => {
-            const visible = section.fields.filter(f => f.val);
-            if (visible.length === 0) return null;
-            return (
-              <div key={section.title} className="bg-white/8 border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
-                <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
-                  <span className="h-px bg-indigo-500/30 flex-1"></span>{section.title}<span className="h-px bg-indigo-500/30 flex-1"></span>
+              {/* 試験概要 */}
+              <div>
+                <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>試験概要<span className="h-px bg-indigo-500/30 flex-1"></span>
                 </p>
-                <div className="space-y-3">
-                  {visible.map(({ label, val }) => (
-                    <div key={label} className="bg-white/5 border border-white/8 rounded-xl p-3">
-                      <p className="text-[9px] text-indigo-400/60 font-bold tracking-widest uppercase mb-1.5">{label}</p>
-                      <p className="text-sm text-indigo-100/85 leading-relaxed whitespace-pre-wrap">{val}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    { key: "examFee", label: "受験費用", placeholder: "例: 7,500円" },
+                    { key: "questionCount", label: "問題数", placeholder: "例: 60問" },
+                    { key: "questionLength", label: "問題文の長さ", placeholder: "例: 短め・普通・長め" },
+                    { key: "examFormat", label: "出題形式", placeholder: "例: 四択・記述式" },
+                  ] as const).map(({ key, label, placeholder }) => (
+                    <div key={key}>
+                      <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">{label}</label>
+                      <input
+                        className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                        placeholder={placeholder}
+                        value={(editingFields as any)[key]}
+                        onChange={e => setEditingFields(prev => prev ? {...prev, [key]: e.target.value} : prev)}
+                      />
                     </div>
                   ))}
                 </div>
               </div>
-            );
-          })}
+
+              {/* 勉強について */}
+              <div>
+                <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>勉強について<span className="h-px bg-indigo-500/30 flex-1"></span>
+                </p>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { key: "studyHours", label: "勉強時間", placeholder: "例: 3ヶ月・1日2時間" },
+                      { key: "studyMaterials", label: "使用教材", placeholder: "例: 公式テキスト・過去問" },
+                    ] as const).map(({ key, label, placeholder }) => (
+                      <div key={key}>
+                        <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">{label}</label>
+                        <input
+                          className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                          placeholder={placeholder}
+                          value={(editingFields as any)[key]}
+                          onChange={e => setEditingFields(prev => prev ? {...prev, [key]: e.target.value} : prev)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">効果があった勉強法</label>
+                    <textarea
+                      className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none h-16"
+                      placeholder="例: 過去問を繰り返し解いた"
+                      value={editingFields.effectiveMethod}
+                      onChange={e => setEditingFields(prev => prev ? {...prev, effectiveMethod: e.target.value} : prev)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 試験内容 */}
+              <div>
+                <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>試験内容<span className="h-px bg-indigo-500/30 flex-1"></span>
+                </p>
+                <div className="space-y-2">
+                  {([
+                    { key: "frequentTopics", label: "頻出の内容", placeholder: "例: ○○分野が多く出題された" },
+                    { key: "challengePoints", label: "苦戦したポイント", placeholder: "例: 計算問題が難しかった" },
+                  ] as const).map(({ key, label, placeholder }) => (
+                    <div key={key}>
+                      <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">{label}</label>
+                      <textarea
+                        className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none h-16"
+                        placeholder={placeholder}
+                        value={(editingFields as any)[key]}
+                        onChange={e => setEditingFields(prev => prev ? {...prev, [key]: e.target.value} : prev)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 合格に向けて */}
+              <div>
+                <p className="text-[9px] text-indigo-500/60 font-bold tracking-[0.2em] uppercase mb-2 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>合格に向けて<span className="h-px bg-indigo-500/30 flex-1"></span>
+                </p>
+                <div className="space-y-2">
+                  {([
+                    { key: "passingTips", label: "合格へのコツ", placeholder: "例: 苦手分野を重点的に対策した" },
+                    { key: "adviceForNext", label: "これから受ける方へのアドバイス", placeholder: "例: 早めに申し込みをおすすめします" },
+                  ] as const).map(({ key, label, placeholder }) => (
+                    <div key={key}>
+                      <label className="block text-[10px] text-indigo-400/70 font-bold mb-1">{label}</label>
+                      <textarea
+                        className="w-full bg-white/8 border border-white/10 p-2.5 rounded-xl text-white placeholder-indigo-500/40 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none h-16"
+                        placeholder={placeholder}
+                        value={(editingFields as any)[key]}
+                        onChange={e => setEditingFields(prev => prev ? {...prev, [key]: e.target.value} : prev)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ボタン */}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={async () => {
+                    await saveEdit(selectedPost.id);
+                    const updatedDetails = JSON.stringify({
+                      examFee: editingFields.examFee, questionCount: editingFields.questionCount,
+                      questionLength: editingFields.questionLength, examFormat: editingFields.examFormat,
+                      studyMaterials: editingFields.studyMaterials, studyHours: editingFields.studyHours,
+                      effectiveMethod: editingFields.effectiveMethod, frequentTopics: editingFields.frequentTopics,
+                      challengePoints: editingFields.challengePoints, passingTips: editingFields.passingTips,
+                      adviceForNext: editingFields.adviceForNext,
+                    });
+                    setSelectedPost((prev: any) => ({
+                      ...prev,
+                      user_name: editingFields.user_name,
+                      memo: editingFields.memo,
+                      difficulty: editingFields.difficulty,
+                      details: updatedDetails,
+                    }));
+                  }}
+                  className="bg-emerald-600 text-white px-5 py-2 rounded-xl text-sm font-bold hover:bg-emerald-500 transition-all"
+                >保存</button>
+                <button
+                  onClick={() => { setEditingId(null); setEditingFields(null); }}
+                  className="bg-white/10 text-white/70 px-5 py-2 rounded-xl text-sm font-bold hover:bg-white/20 transition-all"
+                >キャンセル</button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* ヘッダー */}
+              <div className="bg-white/8 border border-white/15 rounded-2xl p-6 mb-4 shadow-xl">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿者</p>
+                    <p className="text-white font-black text-lg">{selectedPost.user_name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿日時</p>
+                    <p className="text-indigo-300/70 text-xs">{formatDateTime(selectedPost.created_at)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 px-3 py-1 rounded-full text-xs font-bold">📋 {selectedPost.exam_name}</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] text-indigo-400/50 uppercase tracking-widest">難易度</span>
+                    <span className="text-yellow-400 text-sm">{"★".repeat(selectedPost.difficulty)}<span className="text-white/15">{"★".repeat(5 - selectedPost.difficulty)}</span></span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 一言コメント */}
+              <div className="bg-white/8 border border-indigo-400/20 rounded-2xl p-5 mb-4 shadow-xl">
+                <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+                  <span className="h-px bg-indigo-500/30 flex-1"></span>一言コメント<span className="h-px bg-indigo-500/30 flex-1"></span>
+                </p>
+                <p className="text-indigo-100/90 text-sm leading-relaxed whitespace-pre-wrap">{selectedPost.memo}</p>
+              </div>
+
+              {/* 詳細セクション */}
+              {detailSections.map(section => {
+                const visible = section.fields.filter(f => f.val);
+                if (visible.length === 0) return null;
+                return (
+                  <div key={section.title} className="bg-white/8 border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
+                    <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
+                      <span className="h-px bg-indigo-500/30 flex-1"></span>{section.title}<span className="h-px bg-indigo-500/30 flex-1"></span>
+                    </p>
+                    <div className="space-y-3">
+                      {visible.map(({ label, val }) => (
+                        <div key={label} className="bg-white/5 border border-white/8 rounded-xl p-3">
+                          <p className="text-[9px] text-indigo-400/60 font-bold tracking-widest uppercase mb-1.5">{label}</p>
+                          <p className="text-sm text-indigo-100/85 leading-relaxed whitespace-pre-wrap">{val}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
 
           {/* リアクション */}
           <div className="bg-white/8 border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
@@ -513,13 +855,42 @@ export default function Page() {
                   <div key={c.id}>
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-xs font-bold text-indigo-300">{c.user_name}</span>
-                      <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
+                        {(isAdmin || selectedPost.user_id === session?.user?.id) && editingCommentId !== c.id && (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => { setEditingCommentId(c.id); setEditingCommentText(c.text); }}
+                              className="text-[9px] text-indigo-400/60 hover:text-indigo-300 bg-white/5 hover:bg-white/10 px-1.5 py-0.5 rounded transition-all"
+                            >編集</button>
+                            <button
+                              onClick={() => deleteComment(selectedPost, c.id, setSelectedPost)}
+                              className="text-[9px] text-red-400/60 hover:text-red-300 bg-white/5 hover:bg-red-500/10 px-1.5 py-0.5 rounded transition-all"
+                            >削除</button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
-                      {c.text.startsWith('@') ? (
-                        <><span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>{c.text.substring(c.text.split(' ')[0].length)}</>
-                      ) : c.text}
-                    </p>
+                    {editingCommentId === c.id ? (
+                      <div className="space-y-1.5">
+                        <textarea
+                          className="w-full bg-white/8 border border-indigo-400/40 p-2.5 rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                          rows={3}
+                          value={editingCommentText}
+                          onChange={e => setEditingCommentText(e.target.value)}
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={() => saveCommentEdit(selectedPost, c.id, editingCommentText, setSelectedPost)} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
+                          <button onClick={() => setEditingCommentId(null)} className="bg-white/10 text-white/60 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
+                        {c.text.startsWith('@') ? (
+                          <><span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>{c.text.substring(c.text.split(' ')[0].length)}</>
+                        ) : c.text}
+                      </p>
+                    )}
                   </div>
                 ))
               )}
@@ -542,9 +913,11 @@ export default function Page() {
                       if (!commentName || !commentText) { alert("名前とコメント内容を入力してください"); return; }
                       const newComment = { id: Date.now(), user_name: commentName, text: commentText, created_at: new Date().toISOString() };
                       const updatedComments = [...(selectedPost.comments || []), newComment];
-                      await supabase.from("shikaku_memos").update({ comments: updatedComments }).eq("id", selectedPost.id);
+                      const { error } = await supabase.from("shikaku_memos").update({ comments: updatedComments }).eq("id", selectedPost.id);
+                      if (error) { alert("保存に失敗しました: " + error.message); return; }
                       setCommentText("");
                       setSelectedPost((prev: any) => ({ ...prev, comments: updatedComments }));
+                      setRecords((prev: any[]) => prev.map(r => r.id === selectedPost.id ? { ...r, comments: updatedComments } : r));
                     }}
                     className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm hover:from-blue-400 hover:to-indigo-500 shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
                   >送信</button>
@@ -553,13 +926,43 @@ export default function Page() {
             </div>
           </div>
 
-          {/* 管理ボタン */}
-          {(isAdmin || selectedPost.user_id === session?.user?.id) && (
-            <div className="flex gap-2 mt-4 justify-end">
-              <button onClick={() => { setEditingId(selectedPost.id); setEditingMemo(selectedPost.memo); }} className="text-xs font-bold text-indigo-400 hover:text-indigo-200 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all">編集</button>
-              <button onClick={async () => { if (!confirm("投稿を削除しますか？")) return; await supabase.from("shikaku_memos").delete().eq("id", selectedPost.id); setSelectedPost(null); fetchRecords(); }} className="text-xs font-bold text-red-400 hover:text-red-300 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-all">削除</button>
-            </div>
-          )}
+          {/* ブックマーク＋管理ボタン */}
+          <div className="flex gap-2 mt-4 justify-between items-center">
+            {session && (
+              <button
+                onClick={() => toggleBookmark(selectedPost.id)}
+                className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-all ${bookmarks.includes(selectedPost.id) ? "bg-amber-500/20 border-amber-400/40 text-amber-300" : "bg-white/5 border-white/10 text-indigo-400 hover:bg-white/10"}`}
+              >
+                🔖 {bookmarks.includes(selectedPost.id) ? "保存済み" : "ブックマーク"}
+              </button>
+            )}
+            {(isAdmin || selectedPost.user_id === session?.user?.id) && (
+              <div className="flex gap-2 ml-auto">
+                <button onClick={() => {
+                  let d: any = {};
+                  try { if (selectedPost.details) d = JSON.parse(selectedPost.details); } catch {}
+                  setEditingId(selectedPost.id);
+                  setEditingFields({
+                    user_name: selectedPost.user_name || "",
+                    memo: selectedPost.memo || "",
+                    difficulty: selectedPost.difficulty || 3,
+                    examFee: d.examFee || "",
+                    questionCount: d.questionCount || "",
+                    questionLength: d.questionLength || "",
+                    examFormat: d.examFormat || "",
+                    studyHours: d.studyHours || "",
+                    studyMaterials: d.studyMaterials || "",
+                    effectiveMethod: d.effectiveMethod || "",
+                    frequentTopics: d.frequentTopics || "",
+                    challengePoints: d.challengePoints || "",
+                    passingTips: d.passingTips || "",
+                    adviceForNext: d.adviceForNext || "",
+                  });
+                }} className="text-xs font-bold text-indigo-400 hover:text-indigo-200 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all">編集</button>
+                <button onClick={async () => { if (!confirm("投稿を削除しますか？")) return; await supabase.from("shikaku_memos").delete().eq("id", selectedPost.id); setSelectedPost(null); fetchRecords(); }} className="text-xs font-bold text-red-400 hover:text-red-300 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-all">削除</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -615,18 +1018,36 @@ export default function Page() {
               </a>
               <div className="pt-4">
                 <p className="text-[9px] text-indigo-500/50 tracking-widest uppercase px-4 mb-2">資格を追加</p>
-                <div className="flex gap-2">
-                  <input
-                    className="bg-white/8 border border-white/15 flex-1 px-3 py-2 rounded-xl text-white placeholder-indigo-400/50 text-xs outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
-                    placeholder="資格名を入力..."
-                    value={addExamInput}
-                    onChange={e => setAddExamInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") { handleAddExam(addExamInput); setAddExamInput(""); } }}
-                  />
-                  <button
-                    onClick={() => { handleAddExam(addExamInput); setAddExamInput(""); }}
-                    className="bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all"
-                  >追加</button>
+                <div className="relative">
+                  <div className="flex gap-2">
+                    <input
+                      className="bg-white/8 border border-white/15 flex-1 px-3 py-2 rounded-xl text-white placeholder-indigo-400/50 text-xs outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                      placeholder="資格名を入力..."
+                      value={addExamInput}
+                      onChange={e => { setAddExamInput(e.target.value); setShowAddDropdown(true); }}
+                      onFocus={() => setShowAddDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowAddDropdown(false), 150)}
+                      onKeyDown={e => { if (e.key === "Enter") { handleAddExam(addExamInput); setAddExamInput(""); setShowAddDropdown(false); } }}
+                    />
+                    <button
+                      onClick={() => { handleAddExam(addExamInput); setAddExamInput(""); setShowAddDropdown(false); }}
+                      className="bg-indigo-600 text-white px-3 rounded-xl text-xs font-bold hover:bg-indigo-500 transition-all"
+                    >追加</button>
+                  </div>
+                  {showAddDropdown && filteredAddQuals.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 max-h-48 overflow-y-auto bg-slate-800 border border-white/15 rounded-xl shadow-2xl">
+                      {filteredAddQuals.slice(0, 15).map((name) => (
+                        <button
+                          key={name}
+                          onMouseDown={() => { setAddExamInput(name); setShowAddDropdown(false); }}
+                          className="w-full text-left px-3 py-2 text-xs hover:bg-white/10 transition-colors flex items-center justify-between"
+                        >
+                          <span className="text-indigo-100/85 font-semibold truncate">{name}</span>
+                          <span className="text-indigo-400/60 text-[10px] shrink-0 ml-2">+{getXpForExam(name)} XP</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="pt-3">
@@ -674,19 +1095,25 @@ export default function Page() {
             <button onClick={goHome} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
               <img src="/widsley1.png" alt="Widsley" className="h-8 w-auto object-contain drop-shadow" />
               <div>
-                <h1 className="text-lg font-black text-white tracking-tight leading-none">SHIKAKU SHARE</h1>
-                <p className="text-indigo-400/70 text-[10px] tracking-widest uppercase">2026</p>
+                <h1 className="text-lg font-black tracking-tight leading-none bg-gradient-to-r from-yellow-300 via-orange-400 to-red-500 bg-clip-text text-transparent drop-shadow-[0_0_8px_rgba(251,146,60,0.8)] animate-pulse">デップMAX3150</h1>
+                <p className="text-orange-400/70 text-[10px] tracking-widest uppercase">2026</p>
               </div>
             </button>
           </div>
           <div className="flex items-center gap-2">
             <a
               href="/mypage"
-              className="w-10 h-10 flex items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all text-white font-black text-sm"
+              onClick={markNotifsRead}
+              className="relative w-10 h-10 flex items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all text-white font-black text-sm"
               title="マイページ"
             >
               {session?.user?.user_metadata?.full_name?.[0]?.toUpperCase() ||
                session?.user?.email?.[0]?.toUpperCase() || "👤"}
+              {notifCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 rounded-full text-[9px] font-black text-white flex items-center justify-center shadow-lg">
+                  {notifCount > 9 ? "9+" : notifCount}
+                </span>
+              )}
             </a>
             <button
               onClick={() => setSearchOpen(v => !v)}
@@ -742,29 +1169,127 @@ export default function Page() {
               <span className="text-violet-300 font-black text-sm group-hover:translate-x-1 transition-transform whitespace-nowrap">診断する →</span>
             </a>
 
+            {/* ===== 取得速報フィード ===== */}
+            {celebFeed.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <p className="text-[10px] font-bold text-amber-400/70 tracking-[0.3em] uppercase">📡 速報</p>
+                  <span className="h-px bg-amber-500/20 flex-1"></span>
+                  <button
+                    onClick={() => celebScrollRef.current?.scrollBy({ left: -240, behavior: "smooth" })}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/8 border border-white/15 text-indigo-300 hover:bg-white/15 transition-all text-xs"
+                  >←</button>
+                  <button
+                    onClick={() => celebScrollRef.current?.scrollBy({ left: 240, behavior: "smooth" })}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-white/8 border border-white/15 text-indigo-300 hover:bg-white/15 transition-all text-xs"
+                  >→</button>
+                </div>
+                <div ref={celebScrollRef} className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+                  {celebFeed.map((item: any) => {
+                    const profile = item.user_profiles as any;
+                    const CELEB_EMOJIS = ["🎉", "👏", "🔥", "💪", "⭐"];
+                    const isQual = item._type === "qual";
+                    return (
+                      <div key={item._feedId} className={`shrink-0 w-56 border rounded-2xl p-4 shadow-lg ${isQual ? "bg-gradient-to-br from-amber-600/20 to-orange-600/15 border-amber-500/25" : "bg-gradient-to-br from-indigo-600/20 to-violet-600/15 border-indigo-500/25"}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xl">{isQual ? (profile?.avatar || "👤") : "✏️"}</span>
+                          <div className="min-w-0">
+                            <p className={`text-[10px] font-black truncate ${isQual ? "text-amber-300/80" : "text-indigo-300/80"}`}>
+                              {isQual ? (profile?.display_name || "Unknown") : item.user_name}
+                            </p>
+                            <p className={`text-[9px] ${isQual ? "text-amber-400/50" : "text-indigo-400/50"}`}>
+                              {new Date(item.created_at).toLocaleDateString("ja-JP")}
+                            </p>
+                          </div>
+                          <span className={`ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isQual ? "bg-amber-500/20 text-amber-300" : "bg-indigo-500/20 text-indigo-300"}`}>
+                            {isQual ? "取得" : "投稿"}
+                          </span>
+                        </div>
+                        <p className="text-xs font-black text-white leading-tight mb-1 line-clamp-2">{item.exam_name}</p>
+                        {isQual
+                          ? <p className="text-[10px] text-emerald-400 font-bold mb-3">+{item.xp_earned} XP 取得！🎊</p>
+                          : <p className="text-[10px] text-indigo-300/60 mb-3">{item.result ? `結果: ${item.result}` : ""} {"★".repeat(item.difficulty || 0)}</p>
+                        }
+                        <div className="flex gap-1 flex-wrap">
+                          {CELEB_EMOJIS.map(emoji => (
+                            <button
+                              key={emoji}
+                              onClick={() => handleCelebReaction(item._feedId, emoji)}
+                              className="text-xs bg-white/8 hover:bg-white/15 border border-white/10 rounded-full px-2 py-0.5 transition-all active:scale-110"
+                            >
+                              {emoji}<span className="text-[9px] text-white/50 ml-0.5">{item.reactions?.[emoji] || 0}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* セクションタイトル + 資格追加 */}
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-3 mb-3">
               <p className="text-[10px] font-bold text-indigo-400/60 tracking-[0.3em] uppercase">資格一覧</p>
               <span className="h-px bg-indigo-500/20 flex-1"></span>
               <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-widest">
-                {groupedRecords.length} 資格
+                {sortedGroupedRecords.length} 資格
               </span>
             </div>
-            <div className="flex gap-2 mb-6">
-              <input
-                className="bg-white/8 border border-white/15 flex-1 px-4 py-2.5 rounded-xl text-white placeholder-indigo-400/50 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
-                placeholder="新しい資格名を入力して追加..."
-                value={addExamInput}
-                onChange={e => setAddExamInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") { handleAddExam(addExamInput); setAddExamInput(""); } }}
-              />
+            {/* フィルター＋ソートバー */}
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
               <button
-                onClick={() => { handleAddExam(addExamInput); setAddExamInput(""); }}
-                className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 rounded-xl text-sm font-bold hover:from-indigo-500 hover:to-blue-500 transition-all shadow-lg shadow-indigo-500/20 active:scale-95 whitespace-nowrap"
-              >+ 追加</button>
+                onClick={() => setShowBookmarksOnly(false)}
+                className={`text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all ${!showBookmarksOnly ? "bg-indigo-500/30 text-indigo-200 border border-indigo-400/40" : "bg-white/5 text-indigo-400/60 border border-white/10 hover:bg-white/10"}`}
+              >すべて</button>
+              <button
+                onClick={() => setShowBookmarksOnly(true)}
+                className={`text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all ${showBookmarksOnly ? "bg-amber-500/30 text-amber-200 border border-amber-400/40" : "bg-white/5 text-indigo-400/60 border border-white/10 hover:bg-white/10"}`}
+              >🔖 保存済み</button>
+              <span className="h-4 w-px bg-white/15 mx-1"></span>
+              {(["newest", "popular", "difficulty"] as const).map(order => (
+                <button
+                  key={order}
+                  onClick={() => setSortOrder(order)}
+                  className={`text-[10px] font-bold px-3 py-1.5 rounded-lg transition-all ${sortOrder === order ? "bg-white/15 text-white border border-white/25" : "bg-white/5 text-indigo-400/60 border border-white/10 hover:bg-white/10"}`}
+                >
+                  {order === "newest" ? "🕐 新着順" : order === "popular" ? "👍 人気順" : "★ 難易度順"}
+                </button>
+              ))}
+            </div>
+            <div className="relative mb-6">
+              <div className="flex gap-2">
+                <input
+                  className="bg-white/8 border border-white/15 flex-1 px-4 py-2.5 rounded-xl text-white placeholder-indigo-400/50 text-sm outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
+                  placeholder="新しい資格名を入力して追加..."
+                  value={addExamInput}
+                  onChange={e => { setAddExamInput(e.target.value); setShowAddDropdown(true); }}
+                  onFocus={() => setShowAddDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowAddDropdown(false), 150)}
+                  onKeyDown={e => { if (e.key === "Enter") { handleAddExam(addExamInput); setAddExamInput(""); setShowAddDropdown(false); } }}
+                />
+                <button
+                  onClick={() => { handleAddExam(addExamInput); setAddExamInput(""); setShowAddDropdown(false); }}
+                  className="bg-gradient-to-r from-indigo-600 to-blue-600 text-white px-4 rounded-xl text-sm font-bold hover:from-indigo-500 hover:to-blue-500 transition-all shadow-lg shadow-indigo-500/20 active:scale-95 whitespace-nowrap"
+                >+ 追加</button>
+              </div>
+              {showAddDropdown && filteredAddQuals.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 max-h-52 overflow-y-auto bg-slate-800 border border-white/15 rounded-xl shadow-2xl">
+                  {filteredAddQuals.slice(0, 15).map((name) => (
+                    <button
+                      key={name}
+                      onMouseDown={() => { setAddExamInput(name); setShowAddDropdown(false); }}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-white/10 transition-colors flex items-center justify-between"
+                    >
+                      <span className="text-indigo-100/85 font-semibold">{name}</span>
+                      <span className="text-indigo-400/60 text-xs shrink-0 ml-2">+{getXpForExam(name)} XP</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {groupedRecords.length === 0 ? (
+            {sortedGroupedRecords.length === 0 ? (
               <div className="text-center py-24 text-indigo-400/40">
                 <p className="text-4xl mb-4">📭</p>
                 <p className="text-sm font-bold">まだ投稿がありません</p>
@@ -772,7 +1297,7 @@ export default function Page() {
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {groupedRecords.map((group, i) => {
+                {sortedGroupedRecords.map((group, i) => {
                   const avgDiff = group.items.length > 0
                     ? Math.round(group.items.reduce((s: number, r: any) => s + (r.difficulty || 0), 0) / group.items.length)
                     : 0;
@@ -886,12 +1411,14 @@ export default function Page() {
               {postFormOpen && (
               <div className="px-6 pb-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                <input
-                  className="bg-white/8 border border-white/15 p-2.5 rounded-xl text-white placeholder-indigo-400/50 text-sm outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
-                  placeholder="お名前 ★"
-                  value={userName}
-                  onChange={e => setUserName(e.target.value)}
-                />
+                <div className="flex gap-2">
+                  {(["myname", "anonymous"] as const).map(mode => (
+                    <button key={mode} type="button" onClick={() => setNameMode(mode)}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${nameMode === mode ? "bg-indigo-500/30 border-indigo-400/50 text-white" : "bg-white/5 border-white/10 text-indigo-400/60 hover:border-white/20"}`}>
+                      {mode === "myname" ? `👤 ${userName || "MyName"}` : "🕶 匿名"}
+                    </button>
+                  ))}
+                </div>
                 <select
                   className="bg-slate-800 border border-white/15 p-2.5 rounded-xl text-white text-sm outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all"
                   value={examName || selectedExam || ""}
@@ -1031,23 +1558,31 @@ export default function Page() {
                   )}
                   <div className="p-3 space-y-2">
                     {group.items.map(r => (
-                      <button
-                        key={r.id}
-                        onClick={() => setSelectedPost(r)}
-                        className="w-full text-left bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-xl px-4 py-3 transition-all group"
-                      >
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-bold text-white text-sm shrink-0">{r.user_name}</span>
-                            <span className="text-yellow-400 text-xs shrink-0">{"★".repeat(r.difficulty)}</span>
-                            <span className="text-indigo-100/60 text-sm truncate">{r.memo}</span>
+                      <div key={r.id} className="flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/40 rounded-xl transition-all group">
+                        <button
+                          onClick={() => setSelectedPost(r)}
+                          className="flex-1 text-left px-4 py-3"
+                        >
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-bold text-white text-sm shrink-0">{r.user_name}</span>
+                              <span className="text-yellow-400 text-xs shrink-0">{"★".repeat(r.difficulty)}</span>
+                              <span className="text-indigo-100/60 text-sm truncate">{r.memo}</span>
+                            </div>
+                            <div className="flex items-center gap-3 ml-3 shrink-0">
+                              <span className="text-[10px] text-indigo-400/50">{formatDateTime(r.created_at)}</span>
+                              <span className="text-indigo-400/50 group-hover:text-indigo-300 transition-colors text-sm">→</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-3 ml-3 shrink-0">
-                            <span className="text-[10px] text-indigo-400/50">{formatDateTime(r.created_at)}</span>
-                            <span className="text-indigo-400/50 group-hover:text-indigo-300 transition-colors text-sm">→</span>
-                          </div>
-                        </div>
-                      </button>
+                        </button>
+                        {session && (
+                          <button
+                            onClick={() => toggleBookmark(r.id)}
+                            className={`px-2 py-1 text-base transition-all hover:scale-110 shrink-0 ${bookmarks.includes(r.id) ? "text-amber-400" : "text-white/20 hover:text-amber-400/60"}`}
+                            title={bookmarks.includes(r.id) ? "ブックマーク解除" : "ブックマーク"}
+                          >🔖</button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1056,212 +1591,6 @@ export default function Page() {
           </div>
         )}
 
-        {/* ===== 投稿詳細ページ（早期returnに移動済み） ===== */}
-        {false && (
-          <div>
-            <div>
-              {/* 戻るボタン */}
-              <div className="flex items-center gap-2 mb-6 flex-wrap">
-                <button
-                  onClick={() => setSelectedPost(null)}
-                  className="flex items-center gap-1.5 text-xs font-bold text-indigo-400 hover:text-white bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all"
-                >
-                  ← 一覧に戻る
-                </button>
-                <span className="text-indigo-500/40 text-xs">/</span>
-                <span className="text-white/60 text-xs">{selectedPost.exam_name}</span>
-                <span className="text-indigo-500/40 text-xs">/</span>
-                <span className="text-white text-xs font-bold">{selectedPost.user_name}</span>
-              </div>
-
-              {/* ヘッダー情報 */}
-              <div className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl p-6 mb-4 shadow-xl">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿者</p>
-                    <p className="text-white font-black text-lg">{selectedPost.user_name}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[9px] text-indigo-400/50 font-bold tracking-widest uppercase mb-1">投稿日時</p>
-                    <p className="text-indigo-300/70 text-xs">{formatDateTime(selectedPost.created_at)}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 px-3 py-1 rounded-full text-xs font-bold">📋 {selectedPost.exam_name}</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[9px] text-indigo-400/50 uppercase tracking-widest">難易度</span>
-                    <span className="text-yellow-400 text-sm">{"★".repeat(selectedPost.difficulty)}<span className="text-white/15">{"★".repeat(5 - selectedPost.difficulty)}</span></span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 一言コメント */}
-              <div className="bg-white/8 backdrop-blur-xl border border-indigo-400/20 rounded-2xl p-5 mb-4 shadow-xl">
-                <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
-                  <span className="h-px bg-indigo-500/30 flex-1"></span>一言コメント<span className="h-px bg-indigo-500/30 flex-1"></span>
-                </p>
-                {editingId === selectedPost.id ? (
-                  <div className="space-y-2">
-                    <textarea
-                      className="bg-white/8 border border-white/15 p-2 w-full rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
-                      value={editingMemo}
-                      onChange={e => setEditingMemo(e.target.value)}
-                      rows={4}
-                    />
-                    <div className="flex gap-2">
-                      <button onClick={async () => { await saveEdit(selectedPost.id); setSelectedPost((prev: any) => ({ ...prev, memo: editingMemo })); }} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
-                      <button onClick={() => setEditingId(null)} className="bg-white/15 text-white/70 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-indigo-100/90 text-sm leading-relaxed whitespace-pre-wrap">{selectedPost.memo}</p>
-                )}
-              </div>
-
-              {/* 詳細情報 */}
-              {(() => {
-                if (!selectedPost.details) return null;
-                let d: any = {};
-                try { d = JSON.parse(selectedPost.details); } catch { return null; }
-                const sections = [
-                  {
-                    title: "試験概要",
-                    fields: [
-                      { label: "受験費用", val: d.examFee },
-                      { label: "問題数", val: d.questionCount },
-                      { label: "問題文の長さ", val: d.questionLength },
-                      { label: "出題形式", val: d.examFormat },
-                    ]
-                  },
-                  {
-                    title: "勉強について",
-                    fields: [
-                      { label: "勉強時間", val: d.studyHours },
-                      { label: "使用教材", val: d.studyMaterials },
-                      { label: "効果があった勉強法", val: d.effectiveMethod },
-                    ]
-                  },
-                  {
-                    title: "試験内容",
-                    fields: [
-                      { label: "頻出の内容", val: d.frequentTopics },
-                      { label: "苦戦したポイント", val: d.challengePoints },
-                    ]
-                  },
-                  {
-                    title: "合格に向けて",
-                    fields: [
-                      { label: "合格へのコツ", val: d.passingTips },
-                      { label: "これから受ける方へのアドバイス", val: d.adviceForNext },
-                    ]
-                  },
-                ];
-                return (
-                  <>
-                    {sections.map(section => {
-                      const visibleFields = section.fields.filter(f => f.val);
-                      if (visibleFields.length === 0) return null;
-                      return (
-                        <div key={section.title} className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
-                          <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
-                            <span className="h-px bg-indigo-500/30 flex-1"></span>{section.title}<span className="h-px bg-indigo-500/30 flex-1"></span>
-                          </p>
-                          <div className="space-y-3">
-                            {visibleFields.map(({ label, val }) => (
-                              <div key={label} className="bg-white/5 border border-white/8 rounded-xl p-3">
-                                <p className="text-[9px] text-indigo-400/60 font-bold tracking-widest uppercase mb-1.5">{label}</p>
-                                <p className="text-sm text-indigo-100/85 leading-relaxed whitespace-pre-wrap">{val}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </>
-                );
-              })()}
-
-              {/* リアクション */}
-              <div className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl p-5 mb-4 shadow-xl">
-                <p className="text-[9px] text-indigo-400/60 font-bold tracking-[0.2em] uppercase mb-3 flex items-center gap-2">
-                  <span className="h-px bg-indigo-500/30 flex-1"></span>リアクション<span className="h-px bg-indigo-500/30 flex-1"></span>
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  {REACTION_OPTIONS.map(emoji => (
-                    <button key={emoji} onClick={() => handleReaction(selectedPost.id, emoji)} className="text-sm bg-white/5 border border-white/10 rounded-full px-3 py-1 hover:bg-indigo-500/20 hover:border-indigo-400/40 active:scale-125 transition-all">
-                      {emoji} <span className="font-bold text-indigo-300/70">{selectedPost.reactions?.[emoji] || 0}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* コメント */}
-              <div className="bg-white/8 backdrop-blur-xl border border-white/15 rounded-2xl overflow-hidden shadow-xl">
-                <div className="px-5 py-4 border-b border-white/10 bg-indigo-950/40">
-                  <p className="text-xs font-bold text-indigo-300 tracking-widest uppercase">💬 返信 ({selectedPost.comments?.length || 0})</p>
-                </div>
-                <div className="p-5 space-y-4">
-                  {(selectedPost.comments || []).length === 0 ? (
-                    <p className="text-xs text-indigo-500/50 italic text-center py-4">まだ返信はありません</p>
-                  ) : (
-                    selectedPost.comments.map((c: any) => (
-                      <div key={c.id}>
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs font-bold text-indigo-300">{c.user_name}</span>
-                          <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
-                        </div>
-                        <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
-                          {c.text.startsWith('@') ? (
-                            <>
-                              <span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>
-                              {c.text.substring(c.text.split(' ')[0].length)}
-                            </>
-                          ) : c.text}
-                        </p>
-                      </div>
-                    ))
-                  )}
-                  <div className="pt-3 border-t border-white/10 space-y-2">
-                    <input
-                      className="bg-white/8 border border-white/15 p-2.5 w-full rounded-xl text-xs text-white placeholder-indigo-400/50 outline-none focus:ring-2 focus:ring-indigo-400 transition-all"
-                      placeholder="お名前"
-                      value={commentName}
-                      onChange={e => setCommentName(e.target.value)}
-                    />
-                    <div className="flex gap-2 items-end">
-                      <textarea
-                        className="bg-white/8 border border-white/15 p-3 flex-1 rounded-xl text-sm text-white placeholder-indigo-400/50 h-20 outline-none focus:ring-2 focus:ring-indigo-400 transition-all resize-none"
-                        placeholder="返信内容を入力してください..."
-                        value={commentText}
-                        onChange={e => setCommentText(e.target.value)}
-                      />
-                      <button
-                        onClick={async () => {
-                          if (!commentName || !commentText) { alert("名前とコメント内容を入力してください"); return; }
-                          const newComment = { id: Date.now(), user_name: commentName, text: commentText, created_at: new Date().toISOString() };
-                          const updatedComments = [...(selectedPost.comments || []), newComment];
-                          await supabase.from("shikaku_memos").update({ comments: updatedComments }).eq("id", selectedPost.id);
-                          setCommentText("");
-                          setSelectedPost((prev: any) => ({ ...prev, comments: updatedComments }));
-                          fetchRecords();
-                        }}
-                        className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm hover:from-blue-400 hover:to-indigo-500 shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
-                      >送信</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 管理ボタン */}
-              {(isAdmin || selectedPost.user_id === session?.user?.id) && (
-                <div className="flex gap-2 mt-4 justify-end">
-                  <button onClick={() => { setEditingId(selectedPost.id); setEditingMemo(selectedPost.memo); }} className="text-xs font-bold text-indigo-400 hover:text-indigo-200 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all">編集</button>
-                  <button onClick={async () => { if (!confirm("投稿を削除しますか？")) return; await supabase.from("shikaku_memos").delete().eq("id", selectedPost.id); setSelectedPost(null); fetchRecords(); }} className="text-xs font-bold text-red-400 hover:text-red-300 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition-all">削除</button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* コメント・詳細モーダル */}
@@ -1334,16 +1663,45 @@ export default function Page() {
                     <div key={c.id}>
                       <div className="flex justify-between items-center mb-1">
                         <span className="text-xs font-bold text-indigo-300">{c.user_name}</span>
-                        <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] text-indigo-500/50">{formatDateTime(c.created_at)}</span>
+                          {(isAdmin || selectedRecord.user_id === session?.user?.id) && editingCommentId !== c.id && (
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => { setEditingCommentId(c.id); setEditingCommentText(c.text); }}
+                                className="text-[9px] text-indigo-400/60 hover:text-indigo-300 bg-white/5 hover:bg-white/10 px-1.5 py-0.5 rounded transition-all"
+                              >編集</button>
+                              <button
+                                onClick={() => deleteComment(selectedRecord, c.id, setSelectedRecord)}
+                                className="text-[9px] text-red-400/60 hover:text-red-300 bg-white/5 hover:bg-red-500/10 px-1.5 py-0.5 rounded transition-all"
+                              >削除</button>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
-                        {c.text.startsWith('@') ? (
-                          <>
-                            <span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>
-                            {c.text.substring(c.text.split(' ')[0].length)}
-                          </>
-                        ) : c.text}
-                      </p>
+                      {editingCommentId === c.id ? (
+                        <div className="space-y-1.5">
+                          <textarea
+                            className="w-full bg-white/8 border border-indigo-400/40 p-2.5 rounded-xl text-sm text-white outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                            rows={3}
+                            value={editingCommentText}
+                            onChange={e => setEditingCommentText(e.target.value)}
+                          />
+                          <div className="flex gap-2">
+                            <button onClick={() => saveCommentEdit(selectedRecord, c.id, editingCommentText, setSelectedRecord)} className="bg-emerald-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-emerald-500 transition-all">保存</button>
+                            <button onClick={() => setEditingCommentId(null)} className="bg-white/10 text-white/60 px-3 py-1 rounded-lg text-xs font-bold hover:bg-white/20 transition-all">キャンセル</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-indigo-100/80 leading-relaxed bg-white/5 border border-white/10 p-3 rounded-xl">
+                          {c.text.startsWith('@') ? (
+                            <>
+                              <span className="text-indigo-400 font-bold">{c.text.split(' ')[0]}</span>
+                              {c.text.substring(c.text.split(' ')[0].length)}
+                            </>
+                          ) : c.text}
+                        </p>
+                      )}
                     </div>
                   ))
                 )}

@@ -641,8 +641,162 @@ const QUALIFICATIONS: Qualification[] = [
     format: "選択式 / 50問 / 90分",
     english: "日本語対応",
     validity: "永続（更新不要）",
-    next: ["Ruby Gold"],
+    next: ["Ruby Association Certified Gold"],
     description: "まつもとゆきひろ氏公認のRuby資格。Ruby on Rails開発者に人気の実力証明。",
+  },
+  {
+    name: "Ruby Association Certified Gold",
+    category: "プログラミング",
+    icon: "💎🥇",
+    tags: ["senior", "dev", "japanese"],
+    level: "上級",
+    hours: "200〜350時間",
+    fee: "約30,000円",
+    format: "選択式 / 50問 / 90分",
+    english: "日本語対応",
+    validity: "永続（更新不要）",
+    next: [],
+    description: "Ruby資格の最高峰。メタプログラミングやDSLまで深い知識を問う難関資格。",
+  },
+  {
+    name: "Python 3 エンジニア認定データ分析試験",
+    category: "プログラミング",
+    icon: "🐍📊",
+    tags: ["mid", "dev", "japanese"],
+    level: "中級",
+    hours: "80〜150時間",
+    fee: "約11,000円",
+    format: "選択式 / 40問 / 60分",
+    english: "日本語対応",
+    validity: "永続（更新不要）",
+    next: [],
+    description: "Pythonを使ったデータ分析・NumPy・pandasの基礎知識を問う試験。AI・機械学習分野への第一歩。",
+  },
+  {
+    name: "PHP技術者認定試験（上級）",
+    category: "プログラミング",
+    icon: "🐘⚡",
+    tags: ["senior", "dev", "japanese"],
+    level: "上級",
+    hours: "150〜300時間",
+    fee: "約20,000円",
+    format: "選択式＋記述式",
+    english: "日本語対応",
+    validity: "永続（更新不要）",
+    next: [],
+    description: "PHPの高度な知識・設計能力を問う上級試験。Webアプリ開発のエキスパート向け。",
+  },
+  {
+    name: "HTML5プロフェッショナル認定（Lv.2）",
+    category: "プログラミング",
+    icon: "🌐⚡",
+    tags: ["mid", "dev", "japanese"],
+    level: "中級",
+    hours: "100〜200時間",
+    fee: "約15,000円",
+    format: "選択式 / 60問 / 90分",
+    english: "日本語対応",
+    validity: "5年（更新要）",
+    next: [],
+    description: "JavaScriptアプリ開発・APIの高度な知識を問うHTML5上位資格。フロントエンドエンジニア必携。",
+  },
+  {
+    name: "G検定（ジェネラリスト検定）",
+    category: "プログラミング",
+    icon: "🤖",
+    tags: ["entry", "mid", "dev", "japanese"],
+    level: "入門",
+    hours: "50〜100時間",
+    fee: "約12,000円",
+    format: "選択式 / オンライン受験",
+    english: "日本語対応",
+    validity: "永続（更新不要）",
+    next: ["E資格（エンジニア資格）"],
+    description: "JDLA認定のAI・ディープラーニング基礎知識を問う資格。ビジネス活用視点が中心。",
+  },
+  {
+    name: "E資格（エンジニア資格）",
+    category: "プログラミング",
+    icon: "🤖⚡",
+    tags: ["senior", "dev", "japanese"],
+    level: "上級",
+    hours: "200〜400時間",
+    fee: "約35,000円（認定講座受講必須）",
+    format: "選択式 / 約100問 / 120分",
+    english: "日本語対応",
+    validity: "2年（更新要）",
+    next: [],
+    description: "JDLA認定のAI・ディープラーニング実装資格。認定講座受講が受験条件の実践的難関資格。",
+  },
+  {
+    name: "Kotlin Certified Developer",
+    category: "プログラミング",
+    icon: "🎯",
+    tags: ["mid", "dev"],
+    level: "中級",
+    hours: "80〜150時間",
+    fee: "約25,000円",
+    format: "選択式＋コーディング",
+    english: "英語必須",
+    validity: "永続（更新不要）",
+    next: [],
+    description: "JetBrains公認のKotlin資格。Android開発やサーバーサイドKotlinのスキルを証明。",
+  },
+  {
+    name: "CLA（C言語プログラミング入門）",
+    category: "プログラミング",
+    icon: "🔵",
+    tags: ["entry", "dev"],
+    level: "入門",
+    hours: "50〜100時間",
+    fee: "約15,000円",
+    format: "選択式＋コーディング / 45問",
+    english: "日英選択可",
+    validity: "永続（更新不要）",
+    next: ["CPA（C++認定プログラマー）"],
+    description: "C Institute認定のC言語入門資格。組み込み系・システムプログラミングへの第一歩。",
+  },
+  {
+    name: "CPA（C++認定プログラマー）",
+    category: "プログラミング",
+    icon: "🔵⚡",
+    tags: ["mid", "dev"],
+    level: "中級",
+    hours: "100〜200時間",
+    fee: "約20,000円",
+    format: "選択式＋コーディング",
+    english: "日英選択可",
+    validity: "永続（更新不要）",
+    next: [],
+    description: "C++ InstituteのC++中級資格。オブジェクト指向・テンプレートの実践知識を問う。",
+  },
+  {
+    name: "OpenJS Node.js Application Developer（JSNAD）",
+    category: "プログラミング",
+    icon: "🟩",
+    tags: ["mid", "dev"],
+    level: "中級",
+    hours: "100〜200時間",
+    fee: "約40,000円",
+    format: "実技試験 / 35問 / 180分",
+    english: "英語必須",
+    validity: "3年（更新要）",
+    next: [],
+    description: "OpenJS Foundation認定のNode.js実践資格。バックエンドJavaScriptの実装力を問う。",
+  },
+  {
+    name: "App Development with Swift Certified User",
+    category: "プログラミング",
+    icon: "🍎",
+    tags: ["entry", "mid", "dev"],
+    level: "入門",
+    hours: "50〜100時間",
+    fee: "約15,000円",
+    format: "選択式＋実技",
+    english: "英語必須",
+    validity: "永続（更新不要）",
+    next: [],
+    description: "Apple・Certiport認定のSwiftプログラミング資格。iOS/macOSアプリ開発への第一歩。",
   },
   // Infrastructure
   {
@@ -1124,6 +1278,16 @@ export default function QuizPage() {
   const [phase, setPhase] = useState<"owned" | "quiz" | "result">("owned");
   const [animating, setAnimating] = useState(false);
   const [ownedNames, setOwnedNames] = useState<Set<string>>(new Set());
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
+
+  const toggleCat = (cat: string) => {
+    setExpandedCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  };
 
   const question = QUESTIONS[currentQ];
   const progress = ((currentQ + (selectedIdx !== null ? 0.5 : 0)) / QUESTIONS.length) * 100;
@@ -1215,43 +1379,58 @@ export default function QuizPage() {
               <p className="text-indigo-300/60 text-sm mt-1">選択した資格は除外し、次のステップをおすすめします</p>
             </div>
 
-            <div className="space-y-4 mb-8">
+            <div className="space-y-2 mb-8">
               {CATEGORIES.map((cat) => {
                 const items = QUALIFICATIONS.filter((q) => q.category === cat);
+                const isOpen = expandedCats.has(cat);
+                const checkedCount = items.filter((q) => ownedNames.has(q.name)).length;
                 return (
                   <div key={cat} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-                    <div className="px-4 py-2.5 bg-white/5 border-b border-white/8">
-                      <p className="text-[10px] font-black text-indigo-300/70 tracking-widest uppercase">{cat}</p>
-                    </div>
-                    <div className="p-3 space-y-1">
-                      {items.map((q) => {
-                        const checked = ownedNames.has(q.name);
-                        return (
-                          <button
-                            key={q.name}
-                            onClick={() => toggleOwned(q.name)}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
-                              checked
-                                ? "bg-indigo-500/20 border border-indigo-400/40"
-                                : "bg-white/3 border border-transparent hover:bg-white/8"
-                            }`}
-                          >
-                            <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
-                              checked ? "bg-indigo-500 border-indigo-400" : "border-white/25"
-                            }`}>
-                              {checked && <span className="text-white text-[11px] font-black">✓</span>}
-                            </div>
-                            <span className="text-lg shrink-0">{q.icon}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className={`text-sm font-bold leading-tight ${checked ? "text-white" : "text-indigo-100/75"}`}>
-                                {q.name}
-                              </p>
-                              <p className="text-[10px] text-indigo-400/50 mt-0.5">{q.level} · {q.hours}</p>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <button
+                      onClick={() => toggleCat(cat)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] font-black text-indigo-300/70 tracking-widest uppercase">{cat}</span>
+                        {checkedCount > 0 && (
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+                            {checkedCount}件選択中
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-indigo-400/50 text-xs">{isOpen ? "▲" : "▼"}</span>
+                    </button>
+                    {isOpen && (
+                      <div className="border-t border-white/8 p-3 space-y-1">
+                        {items.map((q) => {
+                          const checked = ownedNames.has(q.name);
+                          return (
+                            <button
+                              key={q.name}
+                              onClick={() => toggleOwned(q.name)}
+                              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${
+                                checked
+                                  ? "bg-indigo-500/20 border border-indigo-400/40"
+                                  : "bg-white/3 border border-transparent hover:bg-white/8"
+                              }`}
+                            >
+                              <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                                checked ? "bg-indigo-500 border-indigo-400" : "border-white/25"
+                              }`}>
+                                {checked && <span className="text-white text-[11px] font-black">✓</span>}
+                              </div>
+                              <span className="text-lg shrink-0">{q.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-sm font-bold leading-tight ${checked ? "text-white" : "text-indigo-100/75"}`}>
+                                  {q.name}
+                                </p>
+                                <p className="text-[10px] text-indigo-400/50 mt-0.5">{q.level} · {q.hours}</p>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
